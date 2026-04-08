@@ -7,7 +7,7 @@ from datetime import date
 @st.cache_resource
 def get_engine():
     url = st.secrets["DATABASE_URL"]
-    return create_engine(url)
+    return create_engine(url, connect_args={"sslmode": "require"})
 
 
 @st.cache_data(ttl=300)
