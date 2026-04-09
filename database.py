@@ -3,6 +3,27 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from datetime import date
 
+MAPEAMENTO_UNIDADES = {
+    "ABOSLUTO":          "ABSOLUTO",
+    "CANCUN MOTEL":      "CANCUM",
+    "INSTINTO MOTEL":    "INSTINTO",
+    "MOTEL ANONIMATO":   "ANONIMATO",
+    "MOTEL BLUE STAR":   "BLUE STAR",
+    "MOTEL BRAS CUBAS":  "BRAZ CUBAS",
+    "MOTEL DIAMOND":     "CALIFORNIA",
+    "MOTEL CALIFORNIA":  "CALIFORNIA",
+    "MOTEL DOLCE":       "DOLCE",
+    "MOTEL INFINITUS":   "INFINITUS",
+    "MOTEL JD SECRETO":  "JARDIM SECRETO",
+    "MOTEL LAREIRA":     "LAREIRA",
+    "MOTEL PARIS":       "PARIS",
+    "MOTEL RIVIERA":     "RIVIERA",
+    "XANADU SP":         "XANADU",
+    "MOTEL QUEEN":       "QUEEN",
+    "MOTEL HOBBY":       "HOBBY",
+    "0":                 "ZERO",
+}
+
 
 @st.cache_resource
 def get_engine():
@@ -14,7 +35,16 @@ def get_engine():
 def get_dados_diarios(data_inicio: date, data_fim: date, unidade: str = None) -> pd.DataFrame:
     engine = get_engine()
 
-    filtro = "AND unidade = :unidade" if unidade else ""
+    # Descobre todos os nomes do sistema que mapeiam para o nome interno selecionado
+    if unidade:
+        nomes_sistema = [k for k, v in MAPEAMENTO_UNIDADES.items() if v == unidade]
+        nomes_sistema.append(unidade)  # inclui o próprio nome caso já esteja no banco
+        nomes_sistema = list(set(nomes_sistema))
+        placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
+        filtro = f"AND unidade IN ({placeholders})"
+    else:
+        filtro = ""
+        nomes_sistema = []
 
     query = text(f"""
         WITH saidas_dia AS (
@@ -48,11 +78,13 @@ def get_dados_diarios(data_inicio: date, data_fim: date, unidade: str = None) ->
 
     params = {"data_inicio": data_inicio, "data_fim": data_fim}
     if unidade:
-        params["unidade"] = unidade
+        for i, nome in enumerate(nomes_sistema):
+            params[f"u{i}"] = nome
 
     with engine.connect() as conn:
         result = conn.execute(query, params)
         df = pd.DataFrame(result.fetchall(), columns=result.keys())
+    df["unidade"] = df["unidade"].replace(MAPEAMENTO_UNIDADES)
     return df
 
 
@@ -63,13 +95,22 @@ def get_unidades() -> list:
     with engine.connect() as conn:
         result = conn.execute(query)
         unidades = [row[0] for row in result]
+    unidades = sorted(set(MAPEAMENTO_UNIDADES.get(u, u) for u in unidades))
     return ["Todas"] + unidades
 
 
 @st.cache_data(ttl=300)
 def get_resumo_mes(ano: int, mes: int, unidade: str = None) -> dict:
     engine = get_engine()
-    filtro = "AND unidade = :unidade" if unidade else ""
+    if unidade:
+        nomes_sistema = [k for k, v in MAPEAMENTO_UNIDADES.items() if v == unidade]
+        nomes_sistema.append(unidade)
+        nomes_sistema = list(set(nomes_sistema))
+        placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
+        filtro = f"AND unidade IN ({placeholders})"
+    else:
+        filtro = ""
+        nomes_sistema = []
 
     query_saidas = text(f"""
         SELECT COALESCE(SUM(quantidade), 0)
@@ -88,7 +129,8 @@ def get_resumo_mes(ano: int, mes: int, unidade: str = None) -> dict:
 
     params = {"ano": ano, "mes": mes}
     if unidade:
-        params["unidade"] = unidade
+        for i, nome in enumerate(nomes_sistema):
+            params[f"u{i}"] = nome
 
     with engine.connect() as conn:
         total_saidas = conn.execute(query_saidas, params).scalar()
