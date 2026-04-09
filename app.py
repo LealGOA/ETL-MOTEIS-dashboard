@@ -26,6 +26,9 @@ st.markdown("""
 .metric-label { font-size: 13px; color: #888; margin-bottom: 4px; }
 .metric-value { font-size: 26px; font-weight: 700; color: #333; }
 .metric-value.money { color: #2e7d32; }
+/* Remove campo de busca dos selectboxes */
+div[data-baseweb="popover"] input[type="text"] { display: none !important; }
+div[data-baseweb="popover"] [data-baseweb="input"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
