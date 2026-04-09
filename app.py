@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import date
 import calendar
 
@@ -26,11 +27,23 @@ st.markdown("""
 .metric-label { font-size: 13px; color: #888; margin-bottom: 4px; }
 .metric-value { font-size: 26px; font-weight: 700; color: #333; }
 .metric-value.money { color: #2e7d32; }
-/* Remove campo de busca dos selectboxes */
-div[data-baseweb="popover"] input[type="text"] { display: none !important; }
-div[data-baseweb="popover"] [data-baseweb="input"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
+
+# Impede teclado virtual ao abrir selectbox no mobile (marca inputs como readonly)
+components.html("""
+<script>
+(function() {
+    const makeReadonly = () => {
+        document.querySelectorAll('[data-baseweb="popover"] input, [data-baseweb="select"] input')
+            .forEach(el => el.setAttribute('readonly', 'true'));
+    };
+    const observer = new MutationObserver(makeReadonly);
+    observer.observe(document.body, { childList: true, subtree: true });
+    makeReadonly();
+})();
+</script>
+""", height=0)
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 st.sidebar.header("Filtros")
