@@ -104,11 +104,17 @@ st.markdown(f"## {titulo}")
 dias_com_dados = int((dados["total_saidas"] > 0).sum()) if not dados.empty else 0
 
 # Calcular dia_limite para comparativo vs mês anterior
+# Usa o último dia com dados reais (ETL captura D-1, não D)
 if ano == hoje.year and mes == hoje.month:
+    import pandas as pd
+    dados_com_saidas = dados[dados["total_saidas"] > 0] if not dados.empty else pd.DataFrame()
+    if not dados_com_saidas.empty:
+        ultimo_dia_com_dados = pd.to_datetime(dados_com_saidas["data"]).max().day
+    else:
+        ultimo_dia_com_dados = max(hoje.day - 1, 1)
     _mes_ant = mes - 1 if mes > 1 else 12
     _ano_ant = ano if mes > 1 else ano - 1
-    ultimo_dia_ant = calendar.monthrange(_ano_ant, _mes_ant)[1]
-    dia_limite = min(hoje.day, ultimo_dia_ant)
+    dia_limite = min(ultimo_dia_com_dados, calendar.monthrange(_ano_ant, _mes_ant)[1])
 else:
     dia_limite = calendar.monthrange(ano, mes)[1]
 
