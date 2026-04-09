@@ -7,59 +7,71 @@ DIAS_SEMANA = ["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"]
 
 _CSS = """
 <style>
-.cal-header {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 4px;
-    margin-bottom: 6px;
+/* ── wrapper com scroll horizontal no mobile ── */
+.cal-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
+
+/* ── grid único: header + dias na mesma grade ── */
+.cal-table {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(60px, 1fr));
+    gap: 4px;
+    min-width: 460px;   /* garante alinhamento; scroll abaixo disso */
+}
+
+/* ── header ── */
 .cal-header-cell {
     text-align: center;
-    font-weight: 600;
-    font-size: 12px;
-    color: #888;
-    padding: 6px 0;
+    font-weight: 700;
+    font-size: 11px;
+    color: #fff;
+    padding: 6px 2px;
+    border-radius: 6px;
+    background: #90a4ae;
+    letter-spacing: 0.5px;
 }
-.cal-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 4px;
-}
+.cal-header-cell.fds-h { background: #66bb6a; }
+
+/* ── células dos dias ── */
 .cal-day {
     border: 1px solid #e8e8e8;
     border-radius: 8px;
-    padding: 8px 10px;
-    min-height: 105px;
+    padding: 6px 7px;
+    min-height: 95px;
     background: #fff;
+    box-sizing: border-box;
 }
-.cal-day.empty  { background: transparent; border: none; }
-.cal-day.fds    { background: #e8f5e9; }
-.cal-day.fer    { background: #fff3e0; border-color: #ffcc80; }
+.cal-day.empty { background: transparent; border: none; min-height: 0; }
+.cal-day.fds   { background: #e8f5e9; }
+.cal-day.fer   { background: #fff3e0; border-color: #ffcc80; }
+
 .cal-num {
     font-weight: 700;
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1;
-    margin-bottom: 5px;
+    margin-bottom: 4px;
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
 }
 .cal-badge {
-    font-size: 9px;
+    font-size: 8px;
     background: #ff9800;
     color: #fff;
-    padding: 2px 5px;
+    padding: 2px 4px;
     border-radius: 4px;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 80px;
+    max-width: 60px;
 }
-.cal-metric { font-size: 11px; color: #777; margin: 2px 0; line-height: 1.4; }
+.cal-metric { font-size: 10px; color: #777; margin: 1px 0; line-height: 1.4; }
 .cal-val    { font-weight: 600; color: #333; }
 .cal-money  { font-weight: 600; color: #2e7d32; }
-.cal-empty-label { font-size: 11px; color: #ccc; margin-top: 6px; }
+.cal-empty-label { font-size: 10px; color: #ccc; margin-top: 4px; }
 </style>
 """
 
@@ -81,14 +93,14 @@ def render_calendar(ano: int, mes: int, dados: pd.DataFrame):
 
     html = _CSS
 
-    # Cabeçalho
-    html += '<div class="cal-header">'
-    for d in DIAS_SEMANA:
-        html += f'<div class="cal-header-cell">{d}</div>'
-    html += "</div>"
+    # Grid único: header + dias na mesma grade → alinhamento garantido
+    html += '<div class="cal-wrapper"><div class="cal-table">'
 
-    # Grid
-    html += '<div class="cal-grid">'
+    # Cabeçalho (primeiras 7 células do grid)
+    FDS_COLS = {"SÁB", "DOM"}
+    for d in DIAS_SEMANA:
+        cls_h = " fds-h" if d in FDS_COLS else ""
+        html += f'<div class="cal-header-cell{cls_h}">{d}</div>'
 
     for _ in range(offset):
         html += '<div class="cal-day empty"></div>'
@@ -129,5 +141,5 @@ def render_calendar(ano: int, mes: int, dados: pd.DataFrame):
     for _ in range(6 - ultimo_fds):
         html += '<div class="cal-day empty"></div>'
 
-    html += "</div>"
+    html += "</div></div>"  # fecha cal-table + cal-wrapper
     st.markdown(html, unsafe_allow_html=True)
