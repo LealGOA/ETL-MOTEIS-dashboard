@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 from datetime import date
 import calendar
 
@@ -29,21 +28,6 @@ st.markdown("""
 .metric-value.money { color: #2e7d32; }
 </style>
 """, unsafe_allow_html=True)
-
-# Impede teclado virtual ao abrir selectbox no mobile (marca inputs como readonly)
-components.html("""
-<script>
-(function() {
-    const makeReadonly = () => {
-        document.querySelectorAll('[data-baseweb="popover"] input, [data-baseweb="select"] input')
-            .forEach(el => el.setAttribute('readonly', 'true'));
-    };
-    const observer = new MutationObserver(makeReadonly);
-    observer.observe(document.body, { childList: true, subtree: true });
-    makeReadonly();
-})();
-</script>
-""", height=0)
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 st.sidebar.header("Filtros")
