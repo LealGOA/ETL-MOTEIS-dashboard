@@ -2,7 +2,7 @@ import streamlit as st
 from datetime import date
 import calendar
 
-from database import get_dados_diarios, get_unidades, get_resumo_mes
+from database import get_dados_diarios, get_unidades, get_resumo_mes, get_comparativo_mes
 from calendar_view import render_calendar
 from utils import formatar_moeda, formatar_numero
 
@@ -103,20 +103,33 @@ st.markdown(f"## {titulo}")
 # Cards de resumo
 dias_com_dados = int((dados["total_saidas"] > 0).sum()) if not dados.empty else 0
 
+# Calcular dia_limite para comparativo vs mês anterior
+if ano == hoje.year and mes == hoje.month:
+    _mes_ant = mes - 1 if mes > 1 else 12
+    _ano_ant = ano if mes > 1 else ano - 1
+    ultimo_dia_ant = calendar.monthrange(_ano_ant, _mes_ant)[1]
+    dia_limite = min(hoje.day, ultimo_dia_ant)
+else:
+    dia_limite = calendar.monthrange(ano, mes)[1]
+
+comp = get_comparativo_mes(ano, mes, dia_limite, filtro_uni)
+
 col1, col2, col3, col4 = st.columns(4)
 
-for col, label, valor, cls in [
-    (col1, "Total de saídas",    formatar_numero(resumo["total_saidas"]),       ""),
-    (col2, "Faturamento total",  formatar_moeda(resumo["total_faturamento"]),   "money"),
-    (col3, "Ticket médio",       formatar_moeda(resumo["ticket_medio"]),        ""),
-    (col4, "Dias com movimento", str(dias_com_dados),                           ""),
-]:
-    with col:
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">{label}</div>
-            <div class="metric-value {cls}">{valor}</div>
-        </div>""", unsafe_allow_html=True)
+with col1:
+    delta_s = f"{comp['delta_pct']['saidas']:+.1f}%" if comp['delta_pct']['saidas'] is not None else None
+    st.metric("Total de saídas", formatar_numero(resumo["total_saidas"]), delta=delta_s)
+
+with col2:
+    delta_f = f"{comp['delta_pct']['faturamento']:+.1f}%" if comp['delta_pct']['faturamento'] is not None else None
+    st.metric("Faturamento total", formatar_moeda(resumo["total_faturamento"]), delta=delta_f)
+
+with col3:
+    delta_t = f"{comp['delta_pct']['ticket']:+.1f}%" if comp['delta_pct']['ticket'] is not None else None
+    st.metric("Ticket médio", formatar_moeda(resumo["ticket_medio"]), delta=delta_t)
+
+with col4:
+    st.metric("Dias com movimento", str(dias_com_dados))
 
 st.divider()
 

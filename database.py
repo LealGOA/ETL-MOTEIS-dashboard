@@ -100,6 +100,79 @@ def get_unidades() -> list:
 
 
 @st.cache_data(ttl=300)
+def get_comparativo_mes(ano: int, mes: int, dia_limite: int, unidade: str = None) -> dict:
+    """
+    Retorna acumulados do mês selecionado (até dia_limite) e do mês anterior
+    (até o mesmo dia), além dos deltas percentuais.
+    Filtra tipo = '1-Realizado' para ignorar valores orçados.
+    """
+    engine = get_engine()
+
+    if mes == 1:
+        ano_ant, mes_ant = ano - 1, 12
+    else:
+        ano_ant, mes_ant = ano, mes - 1
+
+    if unidade:
+        nomes_sistema = [k for k, v in MAPEAMENTO_UNIDADES.items() if v == unidade]
+        nomes_sistema.append(unidade)
+        nomes_sistema = list(set(nomes_sistema))
+        placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
+        filtro_uni = f"AND unidade IN ({placeholders})"
+    else:
+        filtro_uni = ""
+        nomes_sistema = []
+
+    def build_params(a, m):
+        p = {"ano": a, "mes": m, "dia": dia_limite}
+        for i, nome in enumerate(nomes_sistema):
+            p[f"u{i}"] = nome
+        return p
+
+    q_saidas = text(f"""
+        SELECT COALESCE(SUM(quantidade), 0)
+        FROM saidas
+        WHERE EXTRACT(YEAR FROM data) = :ano
+          AND EXTRACT(MONTH FROM data) = :mes
+          AND EXTRACT(DAY FROM data) <= :dia
+          AND tipo = '1-Realizado'
+          {filtro_uni}
+    """)
+
+    q_fat = text(f"""
+        SELECT COALESCE(SUM(valor), 0)
+        FROM faturamento
+        WHERE EXTRACT(YEAR FROM data) = :ano
+          AND EXTRACT(MONTH FROM data) = :mes
+          AND EXTRACT(DAY FROM data) <= :dia
+          AND tipo = '1-Realizado'
+          {filtro_uni}
+    """)
+
+    with engine.connect() as conn:
+        s_atual = int(conn.execute(q_saidas, build_params(ano, mes)).scalar())
+        f_atual = float(conn.execute(q_fat,    build_params(ano, mes)).scalar())
+        s_ant   = int(conn.execute(q_saidas, build_params(ano_ant, mes_ant)).scalar())
+        f_ant   = float(conn.execute(q_fat,    build_params(ano_ant, mes_ant)).scalar())
+
+    t_atual = f_atual / s_atual if s_atual > 0 else 0.0
+    t_ant   = f_ant   / s_ant   if s_ant   > 0 else 0.0
+
+    def pct(a, b):
+        return ((a - b) / b * 100) if b != 0 else None
+
+    return {
+        "atual":    {"saidas": s_atual, "faturamento": f_atual, "ticket": t_atual},
+        "anterior": {"saidas": s_ant,   "faturamento": f_ant,   "ticket": t_ant},
+        "delta_pct": {
+            "saidas":      pct(s_atual, s_ant),
+            "faturamento": pct(f_atual, f_ant),
+            "ticket":      pct(t_atual, t_ant),
+        },
+    }
+
+
+@st.cache_data(ttl=300)
 def get_resumo_mes(ano: int, mes: int, unidade: str = None) -> dict:
     engine = get_engine()
     if unidade:
