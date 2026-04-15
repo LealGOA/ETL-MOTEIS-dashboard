@@ -182,6 +182,85 @@ def get_comparativo_mes(ano: int, mes: int, dia_limite: int, unidade: str = None
 
 
 @st.cache_data(ttl=300)
+def get_dados_por_unidade(ano: int, mes: int) -> pd.DataFrame:
+    """
+    Retorna métricas agregadas por unidade para o mês selecionado,
+    incluindo comparação com o mês anterior.
+    """
+    engine = get_engine()
+
+    query = text("""
+        WITH saidas_atual AS (
+            SELECT unidade, SUM(quantidade) AS saidas
+            FROM saidas
+            WHERE EXTRACT(YEAR FROM data) = :ano
+              AND EXTRACT(MONTH FROM data) = :mes
+              AND tipo = '1-Realizado'
+            GROUP BY unidade
+        ),
+        saidas_anterior AS (
+            SELECT unidade, SUM(quantidade) AS saidas
+            FROM saidas
+            WHERE data >= DATE_TRUNC('month', MAKE_DATE(:ano, :mes, 1)) - INTERVAL '1 month'
+              AND data <  DATE_TRUNC('month', MAKE_DATE(:ano, :mes, 1))
+              AND tipo = '1-Realizado'
+            GROUP BY unidade
+        ),
+        fat_atual AS (
+            SELECT unidade, SUM(valor) AS faturamento
+            FROM faturamento
+            WHERE EXTRACT(YEAR FROM data) = :ano
+              AND EXTRACT(MONTH FROM data) = :mes
+            GROUP BY unidade
+        ),
+        fat_anterior AS (
+            SELECT unidade, SUM(valor) AS faturamento
+            FROM faturamento
+            WHERE data >= DATE_TRUNC('month', MAKE_DATE(:ano, :mes, 1)) - INTERVAL '1 month'
+              AND data <  DATE_TRUNC('month', MAKE_DATE(:ano, :mes, 1))
+            GROUP BY unidade
+        )
+        SELECT
+            COALESCE(sa.unidade, sp.unidade, fa.unidade, fp.unidade) AS unidade,
+            COALESCE(sa.saidas, 0)       AS saidas,
+            COALESCE(sp.saidas, 0)       AS saidas_anterior,
+            COALESCE(fa.faturamento, 0)  AS faturamento,
+            COALESCE(fp.faturamento, 0)  AS faturamento_anterior
+        FROM saidas_atual sa
+        FULL OUTER JOIN saidas_anterior sp ON sa.unidade = sp.unidade
+        FULL OUTER JOIN fat_atual       fa ON COALESCE(sa.unidade, sp.unidade) = fa.unidade
+        FULL OUTER JOIN fat_anterior    fp ON COALESCE(sa.unidade, sp.unidade, fa.unidade) = fp.unidade
+        WHERE COALESCE(sa.saidas, 0) > 0 OR COALESCE(fa.faturamento, 0) > 0
+        ORDER BY COALESCE(sa.saidas, 0) DESC
+    """)
+
+    with engine.connect() as conn:
+        result = conn.execute(query, {"ano": ano, "mes": mes})
+        df = pd.DataFrame(result.fetchall(), columns=result.keys())
+
+    if df.empty:
+        return df
+
+    # Normalizar nomes e reagrupar duplicatas pós-mapeamento
+    df["unidade"] = df["unidade"].replace(MAPEAMENTO_UNIDADES)
+    df = df.groupby("unidade", as_index=False).agg({
+        "saidas":             "sum",
+        "saidas_anterior":    "sum",
+        "faturamento":        "sum",
+        "faturamento_anterior": "sum",
+    })
+
+    df["delta_saidas"]      = df["saidas"]      - df["saidas_anterior"]
+    df["delta_faturamento"] = df["faturamento"]  - df["faturamento_anterior"]
+    df["ticket_medio"]      = df.apply(
+        lambda r: r["faturamento"] / r["saidas"] if r["saidas"] > 0 else 0,
+        axis=1,
+    )
+
+    return df.sort_values("saidas", ascending=False).reset_index(drop=True)
+
+
+@st.cache_data(ttl=300)
 def get_resumo_mes(ano: int, mes: int, unidade: str = None) -> dict:
     engine = get_engine()
     if unidade:

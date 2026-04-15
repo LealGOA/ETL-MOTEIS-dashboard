@@ -1,8 +1,9 @@
 import streamlit as st
+import pandas as pd
 from datetime import date
 import calendar
 
-from database import get_dados_diarios, get_unidades, get_resumo_mes
+from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade
 from calendar_view import render_calendar
 from utils import formatar_moeda, formatar_numero
 
@@ -253,7 +254,6 @@ dados = get_dados_diarios(data_inicio, data_fim, filtro_unidade)
 
 # Se filtro "Todas", agregar por data
 if unidade_selecionada == "Todas" and not dados.empty:
-    import pandas as pd
     dados = (
         dados.groupby("data")
         .agg(total_saidas=("total_saidas", "sum"), total_faturamento=("total_faturamento", "sum"))
@@ -290,8 +290,11 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Legenda compacta
-st.markdown("""
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab_diaria, tab_mensal = st.tabs(["📅 Visão Diária", "📊 Visão Mensal"])
+
+with tab_diaria:
+    st.markdown("""
 <div class="legenda">
     <div class="legenda-item">
         <div class="legenda-dot feriado"></div>
@@ -303,9 +306,68 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+    render_calendar(ano_selecionado, mes_selecionado, dados)
 
-# Calendário
-render_calendar(ano_selecionado, mes_selecionado, dados)
+with tab_mensal:
+    st.markdown("### Comparativo por Unidade")
+
+    df_unidades = get_dados_por_unidade(ano_selecionado, mes_selecionado)
+
+    if not df_unidades.empty:
+        def fmt_numero(x):
+            return f"{int(x):,}".replace(",", ".")
+
+        def fmt_delta(x):
+            sinal = "+" if x > 0 else ""
+            return f"{sinal}{int(x):,}".replace(",", ".")
+
+        def fmt_moeda_br(x):
+            return f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        def fmt_delta_moeda(x):
+            sinal = "+" if x > 0 else ""
+            return f"{sinal}{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        df_display = pd.DataFrame({
+            "Unidade":        df_unidades["unidade"],
+            "Saídas":         df_unidades["saidas"].apply(fmt_numero),
+            "Δ Saídas":       df_unidades["delta_saidas"].apply(fmt_delta),
+            "TM (R$)":        df_unidades["ticket_medio"].apply(fmt_moeda_br),
+            "Fat. Acum (R$)": df_unidades["faturamento"].apply(fmt_moeda_br),
+            "Δ Fat. (R$)":    df_unidades["delta_faturamento"].apply(fmt_delta_moeda),
+        })
+
+        def highlight_unidade(row):
+            if unidade_selecionada != "Todas" and row["Unidade"] == unidade_selecionada:
+                return ["background-color: #FFF9C4"] * len(row)
+            return [""] * len(row)
+
+        styled_df = df_display.style.apply(highlight_unidade, axis=1)
+
+        st.dataframe(
+            styled_df,
+            use_container_width=True,
+            hide_index=True,
+            height=min(len(df_display) * 35 + 38, 500),
+        )
+
+        # Totais
+        total_saidas  = int(df_unidades["saidas"].sum())
+        total_delta_s = int(df_unidades["delta_saidas"].sum())
+        total_fat     = float(df_unidades["faturamento"].sum())
+        total_delta_f = float(df_unidades["delta_faturamento"].sum())
+        total_tm      = total_fat / total_saidas if total_saidas > 0 else 0
+
+        icon_s = "🔺" if total_delta_s > 0 else ("🔻" if total_delta_s < 0 else "➖")
+        icon_f = "🔺" if total_delta_f > 0 else ("🔻" if total_delta_f < 0 else "➖")
+
+        st.markdown(
+            f"---\n**Totais:** {fmt_numero(total_saidas)} saídas ({icon_s} {fmt_delta(total_delta_s)}) · "
+            f"TM R$ {fmt_moeda_br(total_tm)} · "
+            f"Fat. R$ {fmt_moeda_br(total_fat)} ({icon_f} {fmt_delta_moeda(total_delta_f)})"
+        )
+    else:
+        st.info("Nenhum dado encontrado para o período selecionado.")
 
 # Footer compacto
 st.markdown("""
