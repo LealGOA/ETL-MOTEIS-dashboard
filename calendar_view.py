@@ -128,13 +128,8 @@ FDS_COLS = {5, 6}  # sábado=5, domingo=6 (índices de DIAS_SEMANA)
 
 
 def _fmt_curta(valor: float) -> str:
-    """Formata valor de forma compacta para mobile."""
-    if valor >= 1_000_000:
-        return f"{valor / 1_000_000:.1f}M"
-    elif valor >= 1_000:
-        return f"{valor / 1_000:.1f}k"
-    else:
-        return f"{valor:.0f}"
+    """Formata valor inteiro com separador de milhar (ex: 8.100)."""
+    return f"{int(valor):,}".replace(",", ".")
 
 
 def render_calendar(ano: int, mes: int, dados: pd.DataFrame):
