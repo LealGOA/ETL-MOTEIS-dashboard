@@ -183,31 +183,19 @@ def render_calendar(ano: int, mes: int, dados: pd.DataFrame):
             tag = feriado[:6]
             badge = f'<span class="cal-badge">{tag}</span>'
 
-        # Métricas
+        # Métricas — strings simples para evitar linhas em branco que quebram o bloco HTML
         if saidas > 0 or fat > 0:
-            metricas = f"""
-            <div class="cal-metrics">
-                <div class="cal-metric-row">
-                    <span>Saí</span>
-                    <span class="cal-metric-val">{saidas}</span>
-                </div>
-                <div class="cal-metric-row">
-                    <span>R$</span>
-                    <span class="cal-metric-val money">{_fmt_curta(fat)}</span>
-                </div>
-                <div class="cal-metric-row">
-                    <span>TM</span>
-                    <span class="cal-metric-val">{_fmt_curta(ticket)}</span>
-                </div>
-            </div>"""
+            metricas = (
+                '<div class="cal-metrics">'
+                f'<div class="cal-metric-row"><span>Saí</span><span class="cal-metric-val">{saidas}</span></div>'
+                f'<div class="cal-metric-row"><span>R$</span><span class="cal-metric-val money">{_fmt_curta(fat)}</span></div>'
+                f'<div class="cal-metric-row"><span>TM</span><span class="cal-metric-val">{_fmt_curta(ticket)}</span></div>'
+                '</div>'
+            )
         else:
             metricas = '<div class="cal-no-data">—</div>'
 
-        html += f"""
-        <div class="{cls}">
-            <div class="cal-num">{info['dia']}{badge}</div>
-            {metricas}
-        </div>"""
+        html += f'<div class="{cls}"><div class="cal-num">{info["dia"]}{badge}</div>{metricas}</div>'
 
     # Células vazias após o último dia
     ultimo_ds = dias[-1]["dia_semana"]
