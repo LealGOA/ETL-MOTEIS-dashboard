@@ -742,37 +742,38 @@ with tab_orcado:
             "Unidade":          df_unit["unidade"],
             "Saídas Orç.":      df_unit["saidas_orcado"].apply(_fmt_n),
             "Saídas Real.":     df_unit["saidas_realizado"].apply(_fmt_n),
-            "% Ating. Saídas":  df_unit["pct_saidas"],        # numérico para ProgressColumn
+            "% Ating. Saídas":  df_unit["pct_saidas"].apply(_fmt_pct),
             "Prev. Saídas":     df_unit["saidas_prev"].apply(_fmt_n),
             "Fat. Orç.":        df_unit["fat_orcado"].apply(_fmt_r),
             "Fat. Real.":       df_unit["fat_realizado"].apply(_fmt_r),
-            "% Ating. Fat.":    df_unit["pct_fat"],            # numérico para ProgressColumn
+            "% Ating. Fat.":    df_unit["pct_fat"].apply(_fmt_pct),
             "Prev. Fat.":       df_unit["fat_prev"].apply(_fmt_r),
         })
+
+        def _color_pct_cell(series, pct_series):
+            styles = []
+            for p in pct_series:
+                if p >= 100:
+                    styles.append("background-color: #c8e6c9; color: #2e7d32; font-weight: bold")
+                elif p > 70:
+                    styles.append("background-color: #fff9c4; color: #f57f17; font-weight: bold")
+                else:
+                    styles.append("background-color: #ffcdd2; color: #c62828; font-weight: bold")
+            return styles
 
         def _highlight_unit_row(row):
             if unidade_selecionada != "Todas" and row["Unidade"] == unidade_selecionada:
                 return ["background-color: #FFF9C4"] * len(row)
             return [""] * len(row)
 
-        styled_tbl = df_tbl.style.apply(_highlight_unit_row, axis=1)
-
+        styled_tbl = (
+            df_tbl.style
+            .apply(_highlight_unit_row, axis=1)
+            .apply(_color_pct_cell, pct_series=list(df_unit["pct_saidas"]), subset=["% Ating. Saídas"])
+            .apply(_color_pct_cell, pct_series=list(df_unit["pct_fat"]),    subset=["% Ating. Fat."])
+        )
         st.dataframe(
             styled_tbl,
-            column_config={
-                "% Ating. Saídas": st.column_config.ProgressColumn(
-                    "% Ating. Saídas",
-                    format="%.1f%%",
-                    min_value=0,
-                    max_value=100,
-                ),
-                "% Ating. Fat.": st.column_config.ProgressColumn(
-                    "% Ating. Fat.",
-                    format="%.1f%%",
-                    min_value=0,
-                    max_value=100,
-                ),
-            },
             use_container_width=True,
             hide_index=True,
             height=min(len(df_tbl) * 35 + 38, 500),
