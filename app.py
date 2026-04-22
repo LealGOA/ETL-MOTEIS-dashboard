@@ -475,75 +475,70 @@ with tab_records:
             aggfunc="max",
         ).sort_index(ascending=False)
 
-        # Monta labels: número + 🎉 se feriado
-        df_rec["valor_label"] = df_rec.apply(
-            lambda r: f"{r['total_saidas']} 🎉" if r["feriado"] else str(r["total_saidas"]),
+        # Tooltip: data exata + nome do feriado se houver
+        df_rec["tooltip"] = df_rec.apply(
+            lambda r: r["data"].strftime("%d/%m/%Y") + (f" — {r['feriado']}" if r["feriado"] else ""),
             axis=1,
         )
-        pivot_lbl = df_rec.pivot_table(
+        pivot_tooltip = df_rec.pivot_table(
             index=["sort_key", "mes_ano"],
             columns="dia_semana",
-            values="valor_label",
+            values="tooltip",
             aggfunc="first",
         ).sort_index(ascending=False)
 
         # Máximo histórico por DOW para marcar estrela
         alltime_max = pivot_num.max(axis=0)
 
-        # Adiciona ⭐ às células que batem o recorde por coluna
-        display = pivot_lbl.copy().astype(object)
-        for dow, max_val in alltime_max.items():
-            if pd.isna(max_val):
-                continue
-            for idx in pivot_num.index:
-                cell_val = pivot_num.at[idx, dow]
-                if pd.notna(cell_val) and cell_val == max_val:
-                    lbl = display.at[idx, dow]
-                    if isinstance(lbl, str) and "⭐" not in lbl:
-                        display.at[idx, dow] = lbl + " ⭐"
+        _FDS_INT = {0, 6}  # Domingo, Sábado
+        dow_cols  = sorted([d for d in pivot_num.columns if d in _DIAS_PT])
 
-        # Simplifica índice para mes_ano
-        display.index = [idx[1] for idx in display.index]
-        display.index.name = "Mês/Ano"
+        th  = "padding:6px 10px;text-align:center;font-size:.78rem;white-space:nowrap"
+        th1 = "padding:6px 10px;text-align:left;font-size:.78rem;white-space:nowrap"
+        td  = "padding:5px 10px;text-align:center;font-size:.8rem;border-bottom:1px solid #f0f0f0"
+        td1 = "padding:5px 10px;text-align:left;font-size:.8rem;font-weight:bold;border-bottom:1px solid #f0f0f0"
 
-        # Renomeia colunas DOW → português (apenas as presentes)
-        display = display.rename(columns={k: v for k, v in _DIAS_PT.items() if k in display.columns})
+        header_html = f'<th style="{th1}">Mês/Ano</th>' + "".join(
+            f'<th style="{th}">{_DIAS_PT[d]}</th>' for d in dow_cols
+        )
+
+        rows_html = ""
+        for (sort_key, mes_ano) in pivot_num.index:
+            row_html = f'<td style="{td1}">{mes_ano}</td>'
+            for dow in dow_cols:
+                num_val = pivot_num.at[(sort_key, mes_ano), dow] if (sort_key, mes_ano) in pivot_num.index else None
+                if pd.isna(num_val) if num_val is not None else True:
+                    row_html += f'<td style="{td}">–</td>'
+                    continue
+                is_record = pd.notna(alltime_max.get(dow)) and num_val == alltime_max.get(dow)
+                lbl  = f"{int(num_val)} ⭐" if is_record else str(int(num_val))
+                fw   = "font-weight:700;" if is_record else ""
+                bg   = "background:#f0fff0;" if dow in _FDS_INT else ""
+                tip  = ""
+                if (sort_key, mes_ano) in pivot_tooltip.index:
+                    tv = pivot_tooltip.at[(sort_key, mes_ano), dow]
+                    if isinstance(tv, str) and tv:
+                        tip = f' title="{tv}" style="{td};{fw}{bg}cursor:help"'
+                if not tip:
+                    tip = f' style="{td};{fw}{bg}"'
+                row_html += f'<td{tip}>{lbl}</td>'
+            rows_html += f'<tr>{row_html}</tr>'
 
         # Footer MELHOR DIA
-        footer = {}
-        pivot_num_simple = pivot_num.copy()
-        pivot_num_simple.index = [idx[1] for idx in pivot_num_simple.index]
-        pivot_num_simple = pivot_num_simple.rename(columns={k: v for k, v in _DIAS_PT.items() if k in pivot_num_simple.columns})
-        for col in display.columns:
-            max_val = pivot_num_simple[col].max() if col in pivot_num_simple.columns else None
-            footer[col] = f"⭐ {int(max_val)}" if pd.notna(max_val) else "–"
+        footer_html = f'<td style="{td1}">MELHOR DIA</td>'
+        for dow in dow_cols:
+            mv = alltime_max.get(dow)
+            footer_html += f'<td style="{td};font-weight:bold">{"⭐ " + str(int(mv)) if pd.notna(mv) else "–"}</td>'
+        rows_html += f'<tr style="background:#FFF9C4">{footer_html}</tr>'
 
-        footer_df = pd.DataFrame([footer], index=["MELHOR DIA"])
-        display = pd.concat([display, footer_df])
-        display = display.fillna("–").reset_index()
-        display = display.rename(columns={"index": "Mês/Ano"})
-
-        _FDS_COLS = {"Domingo", "Sábado"}
-
-        def _style_records(row):
-            if row.iloc[0] == "MELHOR DIA":
-                return ["background-color: #FFF9C4; font-weight: bold"] * len(row)
-            return [""] * len(row)
-
-        fds_presentes = [c for c in display.columns if c in _FDS_COLS]
-        styled_rec = (
-            display.style
-            .apply(_style_records, axis=1)
-            .set_properties(subset=fds_presentes, **{"background-color": "#f0fff0"})
-            .set_properties(subset=["Mês/Ano"], **{"font-weight": "bold"})
+        st.markdown(
+            f'<div style="overflow-x:auto;border-radius:8px;border:1px solid #e0e0e0">'
+            f'<table style="width:100%;border-collapse:collapse">'
+            f'<thead><tr style="background:#1a6b3c;color:white">{header_html}</tr></thead>'
+            f'<tbody>{rows_html}</tbody></table></div>',
+            unsafe_allow_html=True,
         )
-        st.dataframe(
-            styled_rec,
-            use_container_width=True,
-            hide_index=True,
-            height=min(len(display) * 35 + 38, 620),
-        )
-        st.caption("🎉 = dia de feriado nacional  |  ⭐ = recorde histórico por dia da semana")
+        st.caption("⭐ = recorde histórico por dia da semana  |  Passe o mouse sobre o valor para ver a data exata")
 
         # Insights rápidos
         medias_dow = df_rec.groupby("dia_semana")["total_saidas"].mean()
