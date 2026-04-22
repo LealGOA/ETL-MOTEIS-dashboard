@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date
 import calendar
 
-from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes, get_recordes_dia_semana, get_totais_anuais
+from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes, get_recordes_dia_semana, get_totais_anuais, get_orcado_realizado_mes
 from calendar_view import render_calendar
 from utils import formatar_moeda, formatar_numero, get_feriado
 
@@ -336,7 +336,9 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_diaria, tab_mensal, tab_records = st.tabs(["📅 Visão Diária", "📊 Visão Mensal", "🏆 Melhores Dias"])
+tab_diaria, tab_mensal, tab_records, tab_orcado = st.tabs([
+    "📅 Visão Diária", "📊 Visão Mensal", "🏆 Melhores Dias", "🎯 Orçado vs Real"
+])
 
 with tab_diaria:
     st.markdown("""
@@ -603,6 +605,169 @@ with tab_records:
         st.caption(f"Última atualização: {hoje.strftime('%d/%m/%Y')}")
     else:
         st.info("Sem dados anuais disponíveis.")
+
+with tab_orcado:
+    df_orv = get_orcado_realizado_mes(ano_selecionado, mes_selecionado, filtro_unidade)
+
+    if df_orv.empty:
+        st.info("Sem dados de orçamento para o período selecionado.")
+    else:
+        # Agrega por data (ignora unidade quando "Todas")
+        df_daily = df_orv.groupby("data").agg(
+            saidas_realizado=("saidas_realizado", "sum"),
+            saidas_orcado=("saidas_orcado", "sum"),
+            fat_realizado=("fat_realizado", "sum"),
+            fat_orcado=("fat_orcado", "sum"),
+        ).reset_index()
+
+        # Previsão de fechamento: dias com realizado usam realizado; demais usam orçado
+        df_daily["saidas_prev"] = df_daily.apply(
+            lambda r: r["saidas_realizado"] if r["saidas_realizado"] > 0 else r["saidas_orcado"], axis=1
+        )
+        df_daily["fat_prev"] = df_daily.apply(
+            lambda r: r["fat_realizado"] if r["fat_realizado"] > 0 else r["fat_orcado"], axis=1
+        )
+
+        tot_s_orc  = int(df_daily["saidas_orcado"].sum())
+        tot_s_real = int(df_daily["saidas_realizado"].sum())
+        tot_s_prev = int(df_daily["saidas_prev"].sum())
+        tot_f_orc  = float(df_daily["fat_orcado"].sum())
+        tot_f_real = float(df_daily["fat_realizado"].sum())
+        tot_f_prev = float(df_daily["fat_prev"].sum())
+
+        pct_s = (tot_s_real / tot_s_orc * 100) if tot_s_orc > 0 else 0
+        pct_f = (tot_f_real / tot_f_orc * 100) if tot_f_orc > 0 else 0
+
+        def _pct_color(p):
+            if p >= 100: return "#2e7d32"
+            if p >= 80:  return "#f9a825"
+            return "#c62828"
+
+        def _fmt_pct(p):
+            return f"{p:.1f}%"
+
+        def _fmt_n(v):
+            return f"{int(v):,}".replace(",", ".")
+
+        def _fmt_r(v):
+            return f"R$ {v:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        # ── Cards de Saídas ───────────────────────────────────────────────────
+        st.markdown("#### Saídas")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("🎯 Orçado",               _fmt_n(tot_s_orc))
+        c2.metric("✅ Realizado",             _fmt_n(tot_s_real))
+        c3.metric("🔮 Previsão Fechamento",   _fmt_n(tot_s_prev))
+        c4.markdown(
+            f"<div style='text-align:center'>"
+            f"<div style='font-size:.8rem;color:#666;margin-bottom:4px'>% Atingimento</div>"
+            f"<div style='font-size:1.6rem;font-weight:700;color:{_pct_color(pct_s)}'>{_fmt_pct(pct_s)}</div>"
+            f"<div style='font-size:.75rem;color:#888'>{_fmt_n(tot_s_real)} de {_fmt_n(tot_s_orc)}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ── Cards de Faturamento ──────────────────────────────────────────────
+        st.markdown("#### Faturamento")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("🎯 Orçado",               _fmt_r(tot_f_orc))
+        c2.metric("✅ Realizado",             _fmt_r(tot_f_real))
+        c3.metric("🔮 Previsão Fechamento",   _fmt_r(tot_f_prev))
+        c4.markdown(
+            f"<div style='text-align:center'>"
+            f"<div style='font-size:.8rem;color:#666;margin-bottom:4px'>% Atingimento</div>"
+            f"<div style='font-size:1.6rem;font-weight:700;color:{_pct_color(pct_f)}'>{_fmt_pct(pct_f)}</div>"
+            f"<div style='font-size:.75rem;color:#888'>{_fmt_r(tot_f_real)} de {_fmt_r(tot_f_orc)}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+
+        # ── Tabela por Unidade ────────────────────────────────────────────────
+        st.markdown("### Orçado vs Realizado por Unidade")
+
+        df_unit = df_orv.groupby("unidade").agg(
+            saidas_orcado=("saidas_orcado", "sum"),
+            saidas_realizado=("saidas_realizado", "sum"),
+            fat_orcado=("fat_orcado", "sum"),
+            fat_realizado=("fat_realizado", "sum"),
+        ).reset_index()
+
+        # Previsão por unidade: dias com realizado usam realizado; demais usam orçado
+        df_unit_daily = df_orv.copy()
+        df_unit_daily["saidas_prev"] = df_unit_daily.apply(
+            lambda r: r["saidas_realizado"] if r["saidas_realizado"] > 0 else r["saidas_orcado"], axis=1
+        )
+        df_unit_daily["fat_prev"] = df_unit_daily.apply(
+            lambda r: r["fat_realizado"] if r["fat_realizado"] > 0 else r["fat_orcado"], axis=1
+        )
+        df_unit_prev = df_unit_daily.groupby("unidade").agg(
+            saidas_prev=("saidas_prev", "sum"),
+            fat_prev=("fat_prev", "sum"),
+        ).reset_index()
+        df_unit = df_unit.merge(df_unit_prev, on="unidade")
+
+        df_unit["pct_saidas"] = df_unit.apply(
+            lambda r: r["saidas_realizado"] / r["saidas_orcado"] * 100 if r["saidas_orcado"] > 0 else 0, axis=1
+        )
+        df_unit["pct_fat"] = df_unit.apply(
+            lambda r: r["fat_realizado"] / r["fat_orcado"] * 100 if r["fat_orcado"] > 0 else 0, axis=1
+        )
+        df_unit = df_unit.sort_values("saidas_realizado", ascending=False).reset_index(drop=True)
+
+        df_tbl = pd.DataFrame({
+            "Unidade":          df_unit["unidade"],
+            "Saídas Orç.":      df_unit["saidas_orcado"].apply(_fmt_n),
+            "Saídas Real.":     df_unit["saidas_realizado"].apply(_fmt_n),
+            "% Ating. Saídas":  df_unit["pct_saidas"].apply(_fmt_pct),
+            "Prev. Saídas":     df_unit["saidas_prev"].apply(_fmt_n),
+            "Fat. Orç.":        df_unit["fat_orcado"].apply(_fmt_r),
+            "Fat. Real.":       df_unit["fat_realizado"].apply(_fmt_r),
+            "% Ating. Fat.":    df_unit["pct_fat"].apply(_fmt_pct),
+            "Prev. Fat.":       df_unit["fat_prev"].apply(_fmt_r),
+        })
+
+        def _color_pct_col(series, pct_series):
+            return [f"color: {_pct_color(p)}; font-weight: bold" for p in pct_series]
+
+        def _highlight_unit_row(row):
+            if unidade_selecionada != "Todas" and row["Unidade"] == unidade_selecionada:
+                return ["background-color: #FFF9C4"] * len(row)
+            return [""] * len(row)
+
+        styled_tbl = (
+            df_tbl.style
+            .apply(_highlight_unit_row, axis=1)
+            .apply(_color_pct_col, pct_series=list(df_unit["pct_saidas"]), subset=["% Ating. Saídas"])
+            .apply(_color_pct_col, pct_series=list(df_unit["pct_fat"]),    subset=["% Ating. Fat."])
+        )
+        st.dataframe(
+            styled_tbl,
+            use_container_width=True,
+            hide_index=True,
+            height=min(len(df_tbl) * 35 + 38, 500),
+        )
+
+        # Totais da tabela
+        tot_unit_s_orc  = int(df_unit["saidas_orcado"].sum())
+        tot_unit_s_real = int(df_unit["saidas_realizado"].sum())
+        tot_unit_s_prev = int(df_unit["saidas_prev"].sum())
+        tot_unit_f_orc  = float(df_unit["fat_orcado"].sum())
+        tot_unit_f_real = float(df_unit["fat_realizado"].sum())
+        tot_unit_f_prev = float(df_unit["fat_prev"].sum())
+        pct_unit_s = (tot_unit_s_real / tot_unit_s_orc * 100) if tot_unit_s_orc > 0 else 0
+        pct_unit_f = (tot_unit_f_real / tot_unit_f_orc * 100) if tot_unit_f_orc > 0 else 0
+
+        st.markdown(
+            f"---\n**Totais:** Saídas {_fmt_n(tot_unit_s_real)}/{_fmt_n(tot_unit_s_orc)} "
+            f"(<span style='color:{_pct_color(pct_unit_s)};font-weight:bold'>{_fmt_pct(pct_unit_s)}</span>) · "
+            f"Prev. {_fmt_n(tot_unit_s_prev)} · "
+            f"Fat. {_fmt_r(tot_unit_f_real)}/{_fmt_r(tot_unit_f_orc)} "
+            f"(<span style='color:{_pct_color(pct_unit_f)};font-weight:bold'>{_fmt_pct(pct_unit_f)}</span>) · "
+            f"Prev. {_fmt_r(tot_unit_f_prev)}",
+            unsafe_allow_html=True,
+        )
 
 # Footer compacto
 st.markdown("""

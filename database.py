@@ -51,6 +51,7 @@ def get_dados_diarios(data_inicio: date, data_fim: date, unidade: str = None) ->
             SELECT data, unidade, SUM(quantidade) AS total_saidas
             FROM saidas
             WHERE data BETWEEN :data_inicio AND :data_fim
+              AND tipo = '1-Realizado'
             {filtro}
             GROUP BY data, unidade
         ),
@@ -58,6 +59,7 @@ def get_dados_diarios(data_inicio: date, data_fim: date, unidade: str = None) ->
             SELECT data, unidade, SUM(valor) AS total_faturamento
             FROM faturamento
             WHERE data BETWEEN :data_inicio AND :data_fim
+              AND tipo = '1-Realizado'
             {filtro}
             GROUP BY data, unidade
         )
@@ -288,6 +290,7 @@ def get_resumo_mes(ano: int, mes: int, unidade: str = None) -> dict:
         FROM saidas
         WHERE EXTRACT(YEAR FROM data) = :ano
           AND EXTRACT(MONTH FROM data) = :mes
+          AND tipo = '1-Realizado'
         {filtro}
     """)
     query_fat = text(f"""
@@ -295,6 +298,7 @@ def get_resumo_mes(ano: int, mes: int, unidade: str = None) -> dict:
         FROM faturamento
         WHERE EXTRACT(YEAR FROM data) = :ano
           AND EXTRACT(MONTH FROM data) = :mes
+          AND tipo = '1-Realizado'
         {filtro}
     """)
 
@@ -414,5 +418,82 @@ def get_totais_anuais(unidade: str = None) -> pd.DataFrame:
         df["ano"] = df["ano"].astype(int)
         df["mes"] = df["mes"].astype(int)
         df["total_saidas"] = df["total_saidas"].astype(int)
+
+    return df
+
+
+@st.cache_data(ttl=300)
+def get_orcado_realizado_mes(ano: int, mes: int, unidade: str = None) -> pd.DataFrame:
+    """
+    Retorna dados diários por unidade com realizado e orçado separados.
+    Colunas: data, unidade, saidas_realizado, saidas_orcado, fat_realizado, fat_orcado
+    """
+    engine = get_engine()
+
+    if unidade:
+        nomes_sistema = [k for k, v in MAPEAMENTO_UNIDADES.items() if v == unidade]
+        nomes_sistema.append(unidade)
+        nomes_sistema = list(set(nomes_sistema))
+        placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
+        filtro = f"AND unidade IN ({placeholders})"
+    else:
+        filtro = ""
+        nomes_sistema = []
+
+    query = text(f"""
+        WITH saidas_agg AS (
+            SELECT
+                data,
+                unidade,
+                SUM(CASE WHEN tipo = '1-Realizado' THEN quantidade ELSE 0 END) AS saidas_realizado,
+                SUM(CASE WHEN tipo = '2-Orçado'    THEN quantidade ELSE 0 END) AS saidas_orcado
+            FROM saidas
+            WHERE EXTRACT(YEAR  FROM data) = :ano
+              AND EXTRACT(MONTH FROM data) = :mes
+              AND tipo IN ('1-Realizado', '2-Orçado')
+              {filtro}
+            GROUP BY data, unidade
+        ),
+        fat_agg AS (
+            SELECT
+                data,
+                unidade,
+                SUM(CASE WHEN tipo = '1-Realizado' THEN valor ELSE 0 END) AS fat_realizado,
+                SUM(CASE WHEN tipo = '2-Orçado'    THEN valor ELSE 0 END) AS fat_orcado
+            FROM faturamento
+            WHERE EXTRACT(YEAR  FROM data) = :ano
+              AND EXTRACT(MONTH FROM data) = :mes
+              AND tipo IN ('1-Realizado', '2-Orçado')
+              {filtro}
+            GROUP BY data, unidade
+        )
+        SELECT
+            COALESCE(s.data,    f.data)    AS data,
+            COALESCE(s.unidade, f.unidade) AS unidade,
+            COALESCE(s.saidas_realizado, 0) AS saidas_realizado,
+            COALESCE(s.saidas_orcado,    0) AS saidas_orcado,
+            COALESCE(f.fat_realizado,    0) AS fat_realizado,
+            COALESCE(f.fat_orcado,       0) AS fat_orcado
+        FROM saidas_agg s
+        FULL OUTER JOIN fat_agg f ON s.data = f.data AND s.unidade = f.unidade
+        ORDER BY data, unidade
+    """)
+
+    params = {"ano": ano, "mes": mes}
+    if unidade:
+        for i, nome in enumerate(nomes_sistema):
+            params[f"u{i}"] = nome
+
+    with engine.connect() as conn:
+        result = conn.execute(query, params)
+        df = pd.DataFrame(result.fetchall(), columns=result.keys())
+
+    if not df.empty:
+        df["data"] = pd.to_datetime(df["data"]).dt.date
+        df["unidade"] = df["unidade"].replace(MAPEAMENTO_UNIDADES)
+        for col in ["saidas_realizado", "saidas_orcado"]:
+            df[col] = df[col].astype(int)
+        for col in ["fat_realizado", "fat_orcado"]:
+            df[col] = df[col].astype(float)
 
     return df
