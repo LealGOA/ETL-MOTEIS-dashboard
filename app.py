@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date
 import calendar
 
-from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade
+from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes
 from calendar_view import render_calendar
 from utils import formatar_moeda, formatar_numero
 
@@ -169,6 +169,12 @@ st.markdown("""
         .metric-card-label { font-size: 0.75rem; }
         .metric-card-value { font-size: 1.4rem; }
     }
+
+    .metric-card-delta {
+        font-size: 0.7rem;
+        font-weight: 600;
+        margin-top: 0.2rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -290,20 +296,37 @@ if (ano_selecionado, mes_selecionado) == (hoje.year, hoje.month):
 else:
     dia_limite = ultimo_dia
 
+comparativo = get_comparativo_mes(ano_selecionado, mes_selecionado, dia_limite, filtro_unidade)
+
+def fmt_mom_badge(pct_val):
+    if pct_val is None:
+        return ""
+    if abs(pct_val) < 2.0:
+        symbol, color = "■", "#f9a825"
+    elif pct_val > 0:
+        symbol, color = "▲", "#2e7d32"
+    else:
+        symbol, color = "▼", "#c62828"
+    sinal = "+" if pct_val > 0 else ""
+    return f'<div class="metric-card-delta" style="color:{color};">{symbol} {sinal}{pct_val:.1f}% vs mês ant.</div>'
+
 # Cards de métricas (grid 2x2 em mobile, 4x1 em desktop)
 st.markdown(f"""
 <div class="metrics-grid">
     <div class="metric-card">
         <div class="metric-card-label">Saídas</div>
         <div class="metric-card-value highlight">{formatar_numero(resumo['total_saidas'])}</div>
+        {fmt_mom_badge(comparativo['delta_pct']['saidas'])}
     </div>
     <div class="metric-card">
         <div class="metric-card-label">Faturamento</div>
         <div class="metric-card-value money">{formatar_moeda(resumo['total_faturamento'])}</div>
+        {fmt_mom_badge(comparativo['delta_pct']['faturamento'])}
     </div>
     <div class="metric-card">
         <div class="metric-card-label">Ticket Médio</div>
         <div class="metric-card-value">{formatar_moeda(resumo['ticket_medio'])}</div>
+        {fmt_mom_badge(comparativo['delta_pct']['ticket'])}
     </div>
     <div class="metric-card">
         <div class="metric-card-label">Dias c/ Mov.</div>
@@ -336,27 +359,45 @@ with tab_mensal:
     df_unidades = get_dados_por_unidade(ano_selecionado, mes_selecionado, dia_limite)
 
     if not df_unidades.empty:
+        DELTA_THRESHOLD = 0.02
+
+        def _arrow_color(delta, anterior):
+            if anterior != 0 and abs(delta / anterior) < DELTA_THRESHOLD:
+                return "■", "#f9a825"
+            if delta > 0:
+                return "▲", "#2e7d32"
+            if delta < 0:
+                return "▼", "#c62828"
+            return "–", "#888888"
+
         def fmt_numero(x):
             return f"{int(x):,}".replace(",", ".")
-
-        def fmt_delta(x):
-            sinal = "+" if x > 0 else ""
-            return f"{sinal}{int(x):,}".replace(",", ".")
 
         def fmt_moeda_br(x):
             return f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-        def fmt_delta_moeda(x):
-            sinal = "+" if x > 0 else ""
-            return f"{sinal}{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        def fmt_delta(delta, arrow):
+            sinal = "+" if delta > 0 else ""
+            return f"{arrow} {sinal}{int(delta):,}".replace(",", ".")
+
+        def fmt_delta_moeda(delta, arrow):
+            sinal = "+" if delta > 0 else ""
+            return f"{arrow} {sinal}{delta:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        arrows_s, colors_s = zip(*df_unidades.apply(
+            lambda r: _arrow_color(r["delta_saidas"], r["saidas_anterior"]), axis=1
+        ))
+        arrows_f, colors_f = zip(*df_unidades.apply(
+            lambda r: _arrow_color(r["delta_faturamento"], r["faturamento_anterior"]), axis=1
+        ))
 
         df_display = pd.DataFrame({
             "Unidade":        df_unidades["unidade"],
             "Saídas":         df_unidades["saidas"].apply(fmt_numero),
-            "Δ Saídas":       df_unidades["delta_saidas"].apply(fmt_delta),
+            "Δ Saídas":       [fmt_delta(d, a) for d, a in zip(df_unidades["delta_saidas"], arrows_s)],
             "TM (R$)":        df_unidades["ticket_medio"].apply(fmt_moeda_br),
             "Fat. Acum (R$)": df_unidades["faturamento"].apply(fmt_moeda_br),
-            "Δ Fat. (R$)":    df_unidades["delta_faturamento"].apply(fmt_delta_moeda),
+            "Δ Fat. (R$)":    [fmt_delta_moeda(d, a) for d, a in zip(df_unidades["delta_faturamento"], arrows_f)],
         })
 
         def highlight_unidade(row):
@@ -364,7 +405,15 @@ with tab_mensal:
                 return ["background-color: #FFF9C4"] * len(row)
             return [""] * len(row)
 
-        styled_df = df_display.style.apply(highlight_unidade, axis=1)
+        def color_delta_col(_, color_vals):
+            return [f"color: {c}; font-weight: bold" for c in color_vals]
+
+        styled_df = (
+            df_display.style
+            .apply(highlight_unidade, axis=1)
+            .apply(color_delta_col, color_vals=list(colors_s), subset=["Δ Saídas"])
+            .apply(color_delta_col, color_vals=list(colors_f), subset=["Δ Fat. (R$)"])
+        )
 
         st.dataframe(
             styled_df,
@@ -374,19 +423,24 @@ with tab_mensal:
         )
 
         # Totais
-        total_saidas  = int(df_unidades["saidas"].sum())
-        total_delta_s = int(df_unidades["delta_saidas"].sum())
-        total_fat     = float(df_unidades["faturamento"].sum())
-        total_delta_f = float(df_unidades["delta_faturamento"].sum())
-        total_tm      = total_fat / total_saidas if total_saidas > 0 else 0
+        total_saidas     = int(df_unidades["saidas"].sum())
+        total_saidas_ant = int(df_unidades["saidas_anterior"].sum())
+        total_delta_s    = int(df_unidades["delta_saidas"].sum())
+        total_fat        = float(df_unidades["faturamento"].sum())
+        total_fat_ant    = float(df_unidades["faturamento_anterior"].sum())
+        total_delta_f    = float(df_unidades["delta_faturamento"].sum())
+        total_tm         = total_fat / total_saidas if total_saidas > 0 else 0
 
-        icon_s = "🔺" if total_delta_s > 0 else ("🔻" if total_delta_s < 0 else "➖")
-        icon_f = "🔺" if total_delta_f > 0 else ("🔻" if total_delta_f < 0 else "➖")
+        icon_s, color_s = _arrow_color(total_delta_s, total_saidas_ant)
+        icon_f, color_f = _arrow_color(total_delta_f, total_fat_ant)
 
         st.markdown(
-            f"---\n**Totais:** {fmt_numero(total_saidas)} saídas ({icon_s} {fmt_delta(total_delta_s)}) · "
+            f"---\n**Totais:** {fmt_numero(total_saidas)} saídas "
+            f"(<span style='color:{color_s};font-weight:bold'>{icon_s} {fmt_delta(total_delta_s)}</span>) · "
             f"TM R$ {fmt_moeda_br(total_tm)} · "
-            f"Fat. R$ {fmt_moeda_br(total_fat)} ({icon_f} {fmt_delta_moeda(total_delta_f)})"
+            f"Fat. R$ {fmt_moeda_br(total_fat)} "
+            f"(<span style='color:{color_f};font-weight:bold'>{icon_f} {fmt_delta_moeda(total_delta_f)}</span>)",
+            unsafe_allow_html=True,
         )
     else:
         st.info("Nenhum dado encontrado para o período selecionado.")
