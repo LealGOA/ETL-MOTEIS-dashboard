@@ -15,6 +15,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed"  # Sidebar fechada por padrão em mobile
 )
 
+# ── Autenticação ──────────────────────────────────────────────────────────────
+if not st.session_state.get("autenticado"):
+    st.markdown("## 🔐 Dashboard Motéis")
+    senha = st.text_input("Senha de acesso", type="password")
+    if st.button("Entrar"):
+        if senha == st.secrets["DASHBOARD_PASSWORD"]:
+            st.session_state.autenticado = True
+            st.rerun()
+        else:
+            st.error("Senha incorreta.")
+    st.stop()
+
 # CSS Global — Mobile First
 st.markdown("""
 <style>
