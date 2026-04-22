@@ -757,6 +757,16 @@ with tab_orcado:
         th_style = "padding:6px 10px;text-align:left;font-size:.78rem;white-space:nowrap"
         td_style = "padding:5px 10px;font-size:.8rem;white-space:nowrap;border-bottom:1px solid #f0f0f0"
 
+        # Totais para o footer
+        tot_unit_s_orc  = int(df_unit["saidas_orcado"].sum())
+        tot_unit_s_real = int(df_unit["saidas_realizado"].sum())
+        tot_unit_s_prev = int(df_unit["saidas_prev"].sum())
+        tot_unit_f_orc  = float(df_unit["fat_orcado"].sum())
+        tot_unit_f_real = float(df_unit["fat_realizado"].sum())
+        tot_unit_f_prev = float(df_unit["fat_prev"].sum())
+        pct_unit_s = (tot_unit_s_real / tot_unit_s_orc * 100) if tot_unit_s_orc > 0 else 0
+        pct_unit_f = (tot_unit_f_real / tot_unit_f_orc * 100) if tot_unit_f_orc > 0 else 0
+
         rows_html = ""
         for _, r in df_unit.iterrows():
             dest = unidade_selecionada != "Todas" and r["unidade"] == unidade_selecionada
@@ -775,6 +785,22 @@ with tab_orcado:
                 f'</tr>'
             )
 
+        # Footer de totais
+        td_foot = "padding:5px 10px;font-size:.8rem;white-space:nowrap;font-weight:bold"
+        rows_html += (
+            f'<tr style="background:#f5f5f5;border-top:2px solid #c8e6c9">'
+            f'<td style="{td_foot}">TOTAIS</td>'
+            f'<td style="{td_foot}">{_fmt_n(tot_unit_s_orc)}</td>'
+            f'<td style="{td_foot}">{_fmt_n(tot_unit_s_real)}</td>'
+            f'<td style="{td_foot}">{_mini_barra(pct_unit_s)}</td>'
+            f'<td style="{td_foot}">{_fmt_n(tot_unit_s_prev)}</td>'
+            f'<td style="{td_foot}">{_fmt_r(tot_unit_f_orc)}</td>'
+            f'<td style="{td_foot}">{_fmt_r(tot_unit_f_real)}</td>'
+            f'<td style="{td_foot}">{_mini_barra(pct_unit_f)}</td>'
+            f'<td style="{td_foot}">{_fmt_r(tot_unit_f_prev)}</td>'
+            f'</tr>'
+        )
+
         tabela_html = (
             f'<div style="overflow-x:auto;border-radius:8px;border:1px solid #e0e0e0">'
             f'<table style="width:100%;border-collapse:collapse">'
@@ -783,26 +809,6 @@ with tab_orcado:
             + f'</tr></thead><tbody>{rows_html}</tbody></table></div>'
         )
         st.markdown(tabela_html, unsafe_allow_html=True)
-
-        # Totais da tabela
-        tot_unit_s_orc  = int(df_unit["saidas_orcado"].sum())
-        tot_unit_s_real = int(df_unit["saidas_realizado"].sum())
-        tot_unit_s_prev = int(df_unit["saidas_prev"].sum())
-        tot_unit_f_orc  = float(df_unit["fat_orcado"].sum())
-        tot_unit_f_real = float(df_unit["fat_realizado"].sum())
-        tot_unit_f_prev = float(df_unit["fat_prev"].sum())
-        pct_unit_s = (tot_unit_s_real / tot_unit_s_orc * 100) if tot_unit_s_orc > 0 else 0
-        pct_unit_f = (tot_unit_f_real / tot_unit_f_orc * 100) if tot_unit_f_orc > 0 else 0
-
-        st.markdown(
-            f"---\n**Totais:** Saídas {_fmt_n(tot_unit_s_real)}/{_fmt_n(tot_unit_s_orc)} "
-            f"(<span style='color:{_pct_color(pct_unit_s)};font-weight:bold'>{_fmt_pct(pct_unit_s)}</span>) · "
-            f"Prev. {_fmt_n(tot_unit_s_prev)} · "
-            f"Fat. {_fmt_r(tot_unit_f_real)}/{_fmt_r(tot_unit_f_orc)} "
-            f"(<span style='color:{_pct_color(pct_unit_f)};font-weight:bold'>{_fmt_pct(pct_unit_f)}</span>) · "
-            f"Prev. {_fmt_r(tot_unit_f_prev)}",
-            unsafe_allow_html=True,
-        )
 
 # Footer compacto
 st.markdown("""
