@@ -313,3 +313,106 @@ def get_resumo_mes(ano: int, mes: int, unidade: str = None) -> dict:
         "total_faturamento": float(total_fat),
         "ticket_medio": ticket,
     }
+
+
+@st.cache_data(ttl=3600)
+def get_recordes_dia_semana(unidade: str = None) -> pd.DataFrame:
+    engine = get_engine()
+
+    if unidade:
+        nomes_sistema = [k for k, v in MAPEAMENTO_UNIDADES.items() if v == unidade]
+        nomes_sistema.append(unidade)
+        nomes_sistema = list(set(nomes_sistema))
+        placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
+        filtro = f"AND unidade IN ({placeholders})"
+    else:
+        filtro = ""
+        nomes_sistema = []
+
+    query = text(f"""
+        WITH daily AS (
+            SELECT
+                data,
+                EXTRACT(YEAR  FROM data)::INT AS ano,
+                EXTRACT(MONTH FROM data)::INT AS mes,
+                EXTRACT(DOW   FROM data)::INT AS dia_semana,
+                SUM(quantidade) AS total_saidas
+            FROM saidas
+            WHERE tipo = '1-Realizado'
+              {filtro}
+            GROUP BY data
+        ),
+        ranked AS (
+            SELECT *,
+                RANK() OVER (
+                    PARTITION BY ano, mes, dia_semana
+                    ORDER BY total_saidas DESC, data DESC
+                ) AS rnk
+            FROM daily
+        )
+        SELECT data, ano, mes, dia_semana, total_saidas
+        FROM ranked
+        WHERE rnk = 1
+        ORDER BY ano DESC, mes DESC, dia_semana
+    """)
+
+    params = {}
+    if unidade:
+        for i, nome in enumerate(nomes_sistema):
+            params[f"u{i}"] = nome
+
+    with engine.connect() as conn:
+        result = conn.execute(query, params)
+        df = pd.DataFrame(result.fetchall(), columns=result.keys())
+
+    if not df.empty:
+        df["data"] = pd.to_datetime(df["data"]).dt.date
+        df["ano"] = df["ano"].astype(int)
+        df["mes"] = df["mes"].astype(int)
+        df["dia_semana"] = df["dia_semana"].astype(int)
+        df["total_saidas"] = df["total_saidas"].astype(int)
+
+    return df
+
+
+@st.cache_data(ttl=3600)
+def get_totais_anuais(unidade: str = None) -> pd.DataFrame:
+    engine = get_engine()
+
+    if unidade:
+        nomes_sistema = [k for k, v in MAPEAMENTO_UNIDADES.items() if v == unidade]
+        nomes_sistema.append(unidade)
+        nomes_sistema = list(set(nomes_sistema))
+        placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
+        filtro = f"AND unidade IN ({placeholders})"
+    else:
+        filtro = ""
+        nomes_sistema = []
+
+    query = text(f"""
+        SELECT
+            EXTRACT(YEAR  FROM data)::INT AS ano,
+            EXTRACT(MONTH FROM data)::INT AS mes,
+            SUM(quantidade) AS total_saidas
+        FROM saidas
+        WHERE tipo = '1-Realizado'
+          {filtro}
+        GROUP BY ano, mes
+        ORDER BY ano, mes
+    """)
+
+    params = {}
+    if unidade:
+        for i, nome in enumerate(nomes_sistema):
+            params[f"u{i}"] = nome
+
+    with engine.connect() as conn:
+        result = conn.execute(query, params)
+        df = pd.DataFrame(result.fetchall(), columns=result.keys())
+
+    if not df.empty:
+        df["ano"] = df["ano"].astype(int)
+        df["mes"] = df["mes"].astype(int)
+        df["total_saidas"] = df["total_saidas"].astype(int)
+
+    return df

@@ -3,9 +3,9 @@ import pandas as pd
 from datetime import date
 import calendar
 
-from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes
+from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes, get_recordes_dia_semana, get_totais_anuais
 from calendar_view import render_calendar
-from utils import formatar_moeda, formatar_numero
+from utils import formatar_moeda, formatar_numero, get_feriado
 
 # Configuração da página
 st.set_page_config(
@@ -336,7 +336,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_diaria, tab_mensal = st.tabs(["📅 Visão Diária", "📊 Visão Mensal"])
+tab_diaria, tab_mensal, tab_records = st.tabs(["📅 Visão Diária", "📊 Visão Mensal", "🏆 Melhores Dias"])
 
 with tab_diaria:
     st.markdown("""
@@ -444,6 +444,165 @@ with tab_mensal:
         )
     else:
         st.info("Nenhum dado encontrado para o período selecionado.")
+
+with tab_records:
+    _DIAS_PT = {0: "Domingo", 1: "Segunda", 2: "Terça",
+                3: "Quarta",  4: "Quinta",  5: "Sexta", 6: "Sábado"}
+    _MESES_ABREV = {1:"jan",2:"fev",3:"mar",4:"abr",5:"mai",6:"jun",
+                    7:"jul",8:"ago",9:"set",10:"out",11:"nov",12:"dez"}
+    _MESES_COL = ["Jan","Fev","Mar","Abr","Mai","Jun",
+                  "Jul","Ago","Set","Out","Nov","Dez"]
+
+    df_rec   = get_recordes_dia_semana(filtro_unidade)
+    df_anual = get_totais_anuais(filtro_unidade)
+
+    # ── Recordes de Saídas ────────────────────────────────────────────────────
+    st.markdown("### 🏅 Recordes de Saídas por Dia da Semana")
+
+    if not df_rec.empty:
+        df_rec = df_rec.copy()
+        df_rec["feriado"] = df_rec["data"].apply(lambda d: get_feriado(d) if d else None)
+
+        df_rec["mes_ano"]  = df_rec.apply(lambda r: f"{_MESES_ABREV[r['mes']]}/{r['ano']}", axis=1)
+        df_rec["sort_key"] = df_rec["ano"] * 100 + df_rec["mes"]
+
+        pivot_num = df_rec.pivot_table(
+            index=["sort_key", "mes_ano"],
+            columns="dia_semana",
+            values="total_saidas",
+            aggfunc="max",
+        ).sort_index(ascending=False)
+
+        # Monta labels: número + 🎉 se feriado
+        df_rec["valor_label"] = df_rec.apply(
+            lambda r: f"{r['total_saidas']} 🎉" if r["feriado"] else str(r["total_saidas"]),
+            axis=1,
+        )
+        pivot_lbl = df_rec.pivot_table(
+            index=["sort_key", "mes_ano"],
+            columns="dia_semana",
+            values="valor_label",
+            aggfunc="first",
+        ).sort_index(ascending=False)
+
+        # Máximo histórico por DOW para marcar estrela
+        alltime_max = pivot_num.max(axis=0)
+
+        # Adiciona ⭐ às células que batem o recorde por coluna
+        display = pivot_lbl.copy().astype(object)
+        for dow, max_val in alltime_max.items():
+            if pd.isna(max_val):
+                continue
+            for idx in pivot_num.index:
+                cell_val = pivot_num.at[idx, dow]
+                if pd.notna(cell_val) and cell_val == max_val:
+                    lbl = display.at[idx, dow]
+                    if isinstance(lbl, str) and "⭐" not in lbl:
+                        display.at[idx, dow] = lbl + " ⭐"
+
+        # Simplifica índice para mes_ano
+        display.index = [idx[1] for idx in display.index]
+        display.index.name = "Mês/Ano"
+
+        # Renomeia colunas DOW → português (apenas as presentes)
+        display = display.rename(columns={k: v for k, v in _DIAS_PT.items() if k in display.columns})
+
+        # Footer MELHOR DIA
+        footer = {}
+        pivot_num_simple = pivot_num.copy()
+        pivot_num_simple.index = [idx[1] for idx in pivot_num_simple.index]
+        pivot_num_simple = pivot_num_simple.rename(columns={k: v for k, v in _DIAS_PT.items() if k in pivot_num_simple.columns})
+        for col in display.columns:
+            max_val = pivot_num_simple[col].max() if col in pivot_num_simple.columns else None
+            footer[col] = f"⭐ {int(max_val)}" if pd.notna(max_val) else "–"
+
+        footer_df = pd.DataFrame([footer], index=["MELHOR DIA"])
+        display = pd.concat([display, footer_df])
+        display = display.fillna("–").reset_index()
+        display = display.rename(columns={"index": "Mês/Ano"})
+
+        _FDS_COLS = {"Domingo", "Sábado"}
+
+        def _style_records(row):
+            if row.iloc[0] == "MELHOR DIA":
+                return ["background-color: #FFF9C4; font-weight: bold"] * len(row)
+            return [""] * len(row)
+
+        fds_presentes = [c for c in display.columns if c in _FDS_COLS]
+        styled_rec = (
+            display.style
+            .apply(_style_records, axis=1)
+            .set_properties(subset=fds_presentes, **{"background-color": "#f0fff0"})
+            .set_properties(subset=["Mês/Ano"], **{"font-weight": "bold"})
+        )
+        st.dataframe(
+            styled_rec,
+            use_container_width=True,
+            hide_index=True,
+            height=min(len(display) * 35 + 38, 620),
+        )
+        st.caption("🎉 = dia de feriado nacional  |  ⭐ = recorde histórico por dia da semana")
+
+        # Insights rápidos
+        medias_dow = df_rec.groupby("dia_semana")["total_saidas"].mean()
+        melhor_dow = int(medias_dow.idxmax())
+        pior_dow   = int(medias_dow.idxmin())
+        cols_ins = st.columns(2)
+        with cols_ins[0]:
+            st.metric("📈 Melhor dia da semana (média)", _DIAS_PT[melhor_dow],
+                      f"{medias_dow[melhor_dow]:.1f} saídas/mês")
+        with cols_ins[1]:
+            st.metric("📉 Dia com menor movimento (média)", _DIAS_PT[pior_dow],
+                      f"{medias_dow[pior_dow]:.1f} saídas/mês")
+    else:
+        st.info("Sem dados de recordes disponíveis.")
+
+    st.divider()
+
+    # ── Total de Saídas por Ano ───────────────────────────────────────────────
+    st.markdown("### 📆 Total de Saídas por Mês/Ano")
+
+    if not df_anual.empty:
+        pivot_anual = df_anual.pivot_table(
+            index="ano", columns="mes", values="total_saidas", aggfunc="sum"
+        )
+        pivot_anual.columns = [_MESES_COL[m - 1] for m in pivot_anual.columns]
+        for col in _MESES_COL:
+            if col not in pivot_anual.columns:
+                pivot_anual[col] = None
+        pivot_anual = pivot_anual[_MESES_COL].sort_index(ascending=False)
+        pivot_anual.index.name = "Ano"
+
+        def _style_anual(df):
+            styles = pd.DataFrame("", index=df.index, columns=df.columns)
+            for ano in df.index:
+                for i, col in enumerate(df.columns):
+                    mes_num = i + 1
+                    val = df.at[ano, col]
+                    if pd.isna(val) or val == 0:
+                        styles.at[ano, col] = "color: #ccc"
+                    elif ano < hoje.year or (ano == hoje.year and mes_num < hoje.month):
+                        styles.at[ano, col] = "background-color: #e8f4fd; font-weight: 600"
+                    elif ano == hoje.year and mes_num == hoje.month:
+                        styles.at[ano, col] = "background-color: #fff3cd; font-weight: 700; color: #7d4000"
+                    else:
+                        styles.at[ano, col] = "color: #bbb"
+            return styles
+
+        def _fmt_anual(v):
+            if pd.isna(v) or v == 0:
+                return "–"
+            return formatar_numero(int(v))
+
+        styled_anual = (
+            pivot_anual.reset_index().style
+            .apply(_style_anual, subset=_MESES_COL, axis=None)
+            .format({col: _fmt_anual for col in _MESES_COL})
+        )
+        st.dataframe(styled_anual, use_container_width=True, hide_index=True)
+        st.caption(f"Última atualização: {hoje.strftime('%d/%m/%Y')}")
+    else:
+        st.info("Sem dados anuais disponíveis.")
 
 # Footer compacto
 st.markdown("""
