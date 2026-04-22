@@ -738,46 +738,50 @@ with tab_orcado:
         )
         df_unit = df_unit.sort_values("saidas_realizado", ascending=False).reset_index(drop=True)
 
-        df_tbl = pd.DataFrame({
-            "Unidade":          df_unit["unidade"],
-            "Saídas Orç.":      df_unit["saidas_orcado"].apply(_fmt_n),
-            "Saídas Real.":     df_unit["saidas_realizado"].apply(_fmt_n),
-            "% Ating. Saídas":  df_unit["pct_saidas"].apply(_fmt_pct),
-            "Prev. Saídas":     df_unit["saidas_prev"].apply(_fmt_n),
-            "Fat. Orç.":        df_unit["fat_orcado"].apply(_fmt_r),
-            "Fat. Real.":       df_unit["fat_realizado"].apply(_fmt_r),
-            "% Ating. Fat.":    df_unit["pct_fat"].apply(_fmt_pct),
-            "Prev. Fat.":       df_unit["fat_prev"].apply(_fmt_r),
-        })
+        def _mini_barra(pct):
+            pct_bar  = min(max(pct, 0), 100)
+            cor      = _pct_color(pct)
+            cor_dark = _pct_color_dark(pct)
+            return (
+                f'<div style="display:flex;align-items:center;gap:5px">'
+                f'<div style="background:#e0e0e0;border-radius:4px;height:12px;width:60px;overflow:hidden;flex-shrink:0">'
+                f'<div style="background:linear-gradient(90deg,{cor_dark},{cor});width:{pct_bar:.0f}%;height:100%;border-radius:4px"></div>'
+                f'</div>'
+                f'<span style="color:{cor};font-weight:700;font-size:.78rem;white-space:nowrap">{pct:.1f}%</span>'
+                f'</div>'
+            )
 
-        def _color_pct_cell(series, pct_series):
-            styles = []
-            for p in pct_series:
-                if p >= 100:
-                    styles.append("background-color: #c8e6c9; color: #2e7d32; font-weight: bold")
-                elif p > 70:
-                    styles.append("background-color: #fff9c4; color: #f57f17; font-weight: bold")
-                else:
-                    styles.append("background-color: #ffcdd2; color: #c62828; font-weight: bold")
-            return styles
+        colunas = ["Unidade","Saídas Orç.","Saídas Real.","% Ating. Saídas",
+                   "Prev. Saídas","Fat. Orç.","Fat. Real.","% Ating. Fat.","Prev. Fat."]
+        th_style = "padding:6px 10px;text-align:left;font-size:.78rem;white-space:nowrap"
+        td_style = "padding:5px 10px;font-size:.8rem;white-space:nowrap;border-bottom:1px solid #f0f0f0"
 
-        def _highlight_unit_row(row):
-            if unidade_selecionada != "Todas" and row["Unidade"] == unidade_selecionada:
-                return ["background-color: #FFF9C4"] * len(row)
-            return [""] * len(row)
+        rows_html = ""
+        for _, r in df_unit.iterrows():
+            dest = unidade_selecionada != "Todas" and r["unidade"] == unidade_selecionada
+            row_bg = "background:#fffde7" if dest else ""
+            rows_html += (
+                f'<tr style="{row_bg}">'
+                f'<td style="{td_style};font-weight:{"700" if dest else "400"}">{r["unidade"]}</td>'
+                f'<td style="{td_style}">{_fmt_n(r["saidas_orcado"])}</td>'
+                f'<td style="{td_style}">{_fmt_n(r["saidas_realizado"])}</td>'
+                f'<td style="{td_style}">{_mini_barra(r["pct_saidas"])}</td>'
+                f'<td style="{td_style}">{_fmt_n(r["saidas_prev"])}</td>'
+                f'<td style="{td_style}">{_fmt_r(r["fat_orcado"])}</td>'
+                f'<td style="{td_style}">{_fmt_r(r["fat_realizado"])}</td>'
+                f'<td style="{td_style}">{_mini_barra(r["pct_fat"])}</td>'
+                f'<td style="{td_style}">{_fmt_r(r["fat_prev"])}</td>'
+                f'</tr>'
+            )
 
-        styled_tbl = (
-            df_tbl.style
-            .apply(_highlight_unit_row, axis=1)
-            .apply(_color_pct_cell, pct_series=list(df_unit["pct_saidas"]), subset=["% Ating. Saídas"])
-            .apply(_color_pct_cell, pct_series=list(df_unit["pct_fat"]),    subset=["% Ating. Fat."])
+        tabela_html = (
+            f'<div style="overflow-x:auto;border-radius:8px;border:1px solid #e0e0e0">'
+            f'<table style="width:100%;border-collapse:collapse">'
+            f'<thead><tr style="background:#1a6b3c;color:white">'
+            + "".join(f'<th style="{th_style}">{c}</th>' for c in colunas)
+            + f'</tr></thead><tbody>{rows_html}</tbody></table></div>'
         )
-        st.dataframe(
-            styled_tbl,
-            use_container_width=True,
-            hide_index=True,
-            height=min(len(df_tbl) * 35 + 38, 500),
-        )
+        st.markdown(tabela_html, unsafe_allow_html=True)
 
         # Totais da tabela
         tot_unit_s_orc  = int(df_unit["saidas_orcado"].sum())
