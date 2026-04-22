@@ -643,6 +643,11 @@ with tab_orcado:
             if p >= 80:  return "#f9a825"
             return "#c62828"
 
+        def _pct_color_dark(p):
+            if p >= 100: return "#1b5e20"
+            if p >= 80:  return "#e65100"
+            return "#b71c1c"
+
         def _fmt_pct(p):
             return f"{p:.1f}%"
 
@@ -652,35 +657,52 @@ with tab_orcado:
         def _fmt_r(v):
             return f"R$ {v:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+        def _barra_vida(pct, fmt_real, fmt_orc):
+            cor       = _pct_color(pct)
+            cor_dark  = _pct_color_dark(pct)
+            pct_bar   = min(pct, 100)
+            pct_str   = _fmt_pct(pct)
+            label_inside = (
+                f'<span style="color:white;font-size:.72rem;font-weight:700;'
+                f'text-shadow:0 1px 2px rgba(0,0,0,.4)">{pct_str}</span>'
+                if pct_bar > 18 else ""
+            )
+            return (
+                f'<div style="margin:6px 0 18px 0">'
+                f'  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">'
+                f'    <span style="font-size:.75rem;color:#888">✅ Realizado: <b>{fmt_real}</b></span>'
+                f'    <span style="font-size:1rem;font-weight:800;color:{cor}">{pct_str}</span>'
+                f'    <span style="font-size:.75rem;color:#888">🎯 Meta: <b>{fmt_orc}</b></span>'
+                f'  </div>'
+                f'  <div style="background:#e0e0e0;border-radius:12px;height:28px;width:100%;'
+                f'              overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.15)">'
+                f'    <div style="background:linear-gradient(90deg,{cor_dark},{cor});'
+                f'                width:{pct_bar:.1f}%;height:100%;border-radius:12px;'
+                f'                display:flex;align-items:center;justify-content:flex-end;'
+                f'                padding-right:10px;min-width:{"28px" if pct_bar > 6 else "0"}">'
+                f'      {label_inside}'
+                f'    </div>'
+                f'  </div>'
+                f'</div>'
+            )
+
         # ── Cards de Saídas ───────────────────────────────────────────────────
         st.markdown("#### Saídas")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("🎯 Orçado",               _fmt_n(tot_s_orc))
-        c2.metric("✅ Realizado",             _fmt_n(tot_s_real))
-        c3.metric("🔮 Previsão Fechamento",   _fmt_n(tot_s_prev))
-        c4.markdown(
-            f"<div style='text-align:center'>"
-            f"<div style='font-size:.8rem;color:#666;margin-bottom:4px'>% Atingimento</div>"
-            f"<div style='font-size:1.6rem;font-weight:700;color:{_pct_color(pct_s)}'>{_fmt_pct(pct_s)}</div>"
-            f"<div style='font-size:.75rem;color:#888'>{_fmt_n(tot_s_real)} de {_fmt_n(tot_s_orc)}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+        c1, c2, c3 = st.columns(3)
+        c1.metric("🎯 Orçado",             _fmt_n(tot_s_orc))
+        c2.metric("✅ Realizado",           _fmt_n(tot_s_real))
+        c3.metric("🔮 Previsão Fechamento", _fmt_n(tot_s_prev))
+        st.markdown(_barra_vida(pct_s, _fmt_n(tot_s_real), _fmt_n(tot_s_orc)),
+                    unsafe_allow_html=True)
 
         # ── Cards de Faturamento ──────────────────────────────────────────────
         st.markdown("#### Faturamento")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("🎯 Orçado",               _fmt_r(tot_f_orc))
-        c2.metric("✅ Realizado",             _fmt_r(tot_f_real))
-        c3.metric("🔮 Previsão Fechamento",   _fmt_r(tot_f_prev))
-        c4.markdown(
-            f"<div style='text-align:center'>"
-            f"<div style='font-size:.8rem;color:#666;margin-bottom:4px'>% Atingimento</div>"
-            f"<div style='font-size:1.6rem;font-weight:700;color:{_pct_color(pct_f)}'>{_fmt_pct(pct_f)}</div>"
-            f"<div style='font-size:.75rem;color:#888'>{_fmt_r(tot_f_real)} de {_fmt_r(tot_f_orc)}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+        c1, c2, c3 = st.columns(3)
+        c1.metric("🎯 Orçado",             _fmt_r(tot_f_orc))
+        c2.metric("✅ Realizado",           _fmt_r(tot_f_real))
+        c3.metric("🔮 Previsão Fechamento", _fmt_r(tot_f_prev))
+        st.markdown(_barra_vida(pct_f, _fmt_r(tot_f_real), _fmt_r(tot_f_orc)),
+                    unsafe_allow_html=True)
 
         st.divider()
 
@@ -728,8 +750,16 @@ with tab_orcado:
             "Prev. Fat.":       df_unit["fat_prev"].apply(_fmt_r),
         })
 
-        def _color_pct_col(series, pct_series):
-            return [f"color: {_pct_color(p)}; font-weight: bold" for p in pct_series]
+        def _bar_cell_col(series, pct_series):
+            styles = []
+            for p in pct_series:
+                pct_bar = min(max(p, 0), 100)
+                fill = "#c8e6c9" if p >= 100 else ("#fff9c4" if p >= 80 else "#ffcdd2")
+                styles.append(
+                    f"background: linear-gradient(90deg, {fill} {pct_bar:.0f}%, #f5f5f5 {pct_bar:.0f}%);"
+                    f"color: {_pct_color(p)}; font-weight: bold"
+                )
+            return styles
 
         def _highlight_unit_row(row):
             if unidade_selecionada != "Todas" and row["Unidade"] == unidade_selecionada:
@@ -739,8 +769,8 @@ with tab_orcado:
         styled_tbl = (
             df_tbl.style
             .apply(_highlight_unit_row, axis=1)
-            .apply(_color_pct_col, pct_series=list(df_unit["pct_saidas"]), subset=["% Ating. Saídas"])
-            .apply(_color_pct_col, pct_series=list(df_unit["pct_fat"]),    subset=["% Ating. Fat."])
+            .apply(_bar_cell_col, pct_series=list(df_unit["pct_saidas"]), subset=["% Ating. Saídas"])
+            .apply(_bar_cell_col, pct_series=list(df_unit["pct_fat"]),    subset=["% Ating. Fat."])
         )
         st.dataframe(
             styled_tbl,
