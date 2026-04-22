@@ -480,11 +480,11 @@ with tab_records:
         pivot_date = df_rec.pivot_table(
             index=["sort_key", "mes_ano"], columns="dia_semana",
             values="data_curta", aggfunc="first",
-        ).sort_index(ascending=False)
+        ).sort_index(ascending=False).reindex(pivot_num.index)
         pivot_fer = df_rec.pivot_table(
             index=["sort_key", "mes_ano"], columns="dia_semana",
             values="feriado", aggfunc="first",
-        ).sort_index(ascending=False)
+        ).sort_index(ascending=False).reindex(pivot_num.index)
 
         alltime_max = pivot_num.max(axis=0)
         _FDS_INT    = {0, 6}
