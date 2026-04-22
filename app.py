@@ -475,28 +475,38 @@ with tab_records:
             aggfunc="max",
         ).sort_index(ascending=False)
 
-        # Tooltip: data exata + nome do feriado se houver
-        df_rec["tooltip"] = df_rec.apply(
-            lambda r: r["data"].strftime("%d/%m/%Y") + (f" — {r['feriado']}" if r["feriado"] else ""),
-            axis=1,
-        )
-        pivot_tooltip = df_rec.pivot_table(
-            index=["sort_key", "mes_ano"],
-            columns="dia_semana",
-            values="tooltip",
-            aggfunc="first",
+        # Pivots auxiliares: data curta e nome do feriado por célula
+        df_rec["data_curta"] = df_rec["data"].apply(lambda d: d.strftime("%d/%m"))
+        pivot_date = df_rec.pivot_table(
+            index=["sort_key", "mes_ano"], columns="dia_semana",
+            values="data_curta", aggfunc="first",
+        ).sort_index(ascending=False)
+        pivot_fer = df_rec.pivot_table(
+            index=["sort_key", "mes_ano"], columns="dia_semana",
+            values="feriado", aggfunc="first",
         ).sort_index(ascending=False)
 
-        # Máximo histórico por DOW para marcar estrela
         alltime_max = pivot_num.max(axis=0)
+        _FDS_INT    = {0, 6}
+        dow_cols    = sorted([d for d in pivot_num.columns if d in _DIAS_PT])
 
-        _FDS_INT = {0, 6}  # Domingo, Sábado
-        dow_cols  = sorted([d for d in pivot_num.columns if d in _DIAS_PT])
+        def _cell(num_val, is_record, date_str, feriado_nome, is_fds):
+            bg  = "background:#f0fff0;" if is_fds else ""
+            num = f'{int(num_val)}{"&thinsp;⭐" if is_record else ""}'
+            fw  = "font-weight:700;" if is_record else ""
+            sub = ""
+            if is_record and date_str:
+                sub += f'<div style="font-size:.6rem;color:#aaa;margin-top:1px">{date_str}</div>'
+            if feriado_nome:
+                sub += f'<div style="font-size:.6rem;color:#e65100;margin-top:1px">{feriado_nome}</div>'
+            inner = f'<div style="{fw}font-size:.83rem">{num}</div>{sub}'
+            return (f'<td style="padding:5px 8px;text-align:center;'
+                    f'border-bottom:1px solid #f0f0f0;{bg}">'
+                    f'<div style="line-height:1.3">{inner}</div></td>')
 
         th  = "padding:6px 10px;text-align:center;font-size:.78rem;white-space:nowrap"
         th1 = "padding:6px 10px;text-align:left;font-size:.78rem;white-space:nowrap"
-        td  = "padding:5px 10px;text-align:center;font-size:.8rem;border-bottom:1px solid #f0f0f0"
-        td1 = "padding:5px 10px;text-align:left;font-size:.8rem;font-weight:bold;border-bottom:1px solid #f0f0f0"
+        td1 = "padding:5px 8px;text-align:left;font-size:.8rem;font-weight:bold;border-bottom:1px solid #f0f0f0"
 
         header_html = f'<th style="{th1}">Mês/Ano</th>' + "".join(
             f'<th style="{th}">{_DIAS_PT[d]}</th>' for d in dow_cols
@@ -506,29 +516,25 @@ with tab_records:
         for (sort_key, mes_ano) in pivot_num.index:
             row_html = f'<td style="{td1}">{mes_ano}</td>'
             for dow in dow_cols:
-                num_val = pivot_num.at[(sort_key, mes_ano), dow] if (sort_key, mes_ano) in pivot_num.index else None
-                if pd.isna(num_val) if num_val is not None else True:
-                    row_html += f'<td style="{td}">–</td>'
+                num_val = pivot_num.at[(sort_key, mes_ano), dow]
+                if pd.isna(num_val):
+                    row_html += '<td style="padding:5px 8px;text-align:center;color:#ccc">–</td>'
                     continue
-                is_record = pd.notna(alltime_max.get(dow)) and num_val == alltime_max.get(dow)
-                lbl  = f"{int(num_val)} ⭐" if is_record else str(int(num_val))
-                fw   = "font-weight:700;" if is_record else ""
-                bg   = "background:#f0fff0;" if dow in _FDS_INT else ""
-                tip  = ""
-                if (sort_key, mes_ano) in pivot_tooltip.index:
-                    tv = pivot_tooltip.at[(sort_key, mes_ano), dow]
-                    if isinstance(tv, str) and tv:
-                        tip = f' title="{tv}" style="{td};{fw}{bg}cursor:help"'
-                if not tip:
-                    tip = f' style="{td};{fw}{bg}"'
-                row_html += f'<td{tip}>{lbl}</td>'
+                is_rec = pd.notna(alltime_max.get(dow)) and num_val == alltime_max.get(dow)
+                dv = pivot_date.at[(sort_key, mes_ano), dow] if dow in pivot_date.columns else ""
+                fv = pivot_fer.at[(sort_key, mes_ano), dow]  if dow in pivot_fer.columns  else ""
+                row_html += _cell(num_val, is_rec,
+                                  dv if isinstance(dv, str) else "",
+                                  fv if isinstance(fv, str) else "",
+                                  dow in _FDS_INT)
             rows_html += f'<tr>{row_html}</tr>'
 
         # Footer MELHOR DIA
         footer_html = f'<td style="{td1}">MELHOR DIA</td>'
         for dow in dow_cols:
             mv = alltime_max.get(dow)
-            footer_html += f'<td style="{td};font-weight:bold">{"⭐ " + str(int(mv)) if pd.notna(mv) else "–"}</td>'
+            val = f"⭐&nbsp;{int(mv)}" if pd.notna(mv) else "–"
+            footer_html += f'<td style="padding:5px 8px;text-align:center;font-weight:bold">{val}</td>'
         rows_html += f'<tr style="background:#FFF9C4">{footer_html}</tr>'
 
         st.markdown(
@@ -538,7 +544,7 @@ with tab_records:
             f'<tbody>{rows_html}</tbody></table></div>',
             unsafe_allow_html=True,
         )
-        st.caption("⭐ = recorde histórico por dia da semana  |  Passe o mouse sobre o valor para ver a data exata")
+        st.caption("⭐ = recorde histórico por dia da semana  |  data em cinza = dia do recorde  |  🟠 = feriado nacional")
 
         # Insights rápidos
         medias_dow = df_rec.groupby("dia_semana")["total_saidas"].mean()
