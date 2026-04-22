@@ -426,6 +426,7 @@ def get_totais_anuais(unidade: str = None) -> pd.DataFrame:
 def get_orcado_realizado_mes(ano: int, mes: int, unidade: str = None) -> pd.DataFrame:
     """
     Retorna dados diários por unidade com realizado e orçado separados.
+    Fonte: tabela orcado_real (gerada pelo ETL 4-final.py).
     Colunas: data, unidade, saidas_realizado, saidas_orcado, fat_realizado, fat_orcado
     """
     engine = get_engine()
@@ -441,41 +442,18 @@ def get_orcado_realizado_mes(ano: int, mes: int, unidade: str = None) -> pd.Data
         nomes_sistema = []
 
     query = text(f"""
-        WITH saidas_agg AS (
-            SELECT
-                data,
-                unidade,
-                SUM(CASE WHEN tipo = '1-Realizado' THEN quantidade ELSE 0 END) AS saidas_realizado,
-                SUM(CASE WHEN tipo = '2-Orçado'    THEN quantidade ELSE 0 END) AS saidas_orcado
-            FROM saidas
-            WHERE EXTRACT(YEAR  FROM data) = :ano
-              AND EXTRACT(MONTH FROM data) = :mes
-              AND tipo IN ('1-Realizado', '2-Orçado')
-              {filtro}
-            GROUP BY data, unidade
-        ),
-        fat_agg AS (
-            SELECT
-                data,
-                unidade,
-                SUM(CASE WHEN tipo = '1-Realizado' THEN valor ELSE 0 END) AS fat_realizado,
-                SUM(CASE WHEN tipo = '2-Orçado'    THEN valor ELSE 0 END) AS fat_orcado
-            FROM faturamento
-            WHERE EXTRACT(YEAR  FROM data) = :ano
-              AND EXTRACT(MONTH FROM data) = :mes
-              AND tipo IN ('1-Realizado', '2-Orçado')
-              {filtro}
-            GROUP BY data, unidade
-        )
         SELECT
-            COALESCE(s.data,    f.data)    AS data,
-            COALESCE(s.unidade, f.unidade) AS unidade,
-            COALESCE(s.saidas_realizado, 0) AS saidas_realizado,
-            COALESCE(s.saidas_orcado,    0) AS saidas_orcado,
-            COALESCE(f.fat_realizado,    0) AS fat_realizado,
-            COALESCE(f.fat_orcado,       0) AS fat_orcado
-        FROM saidas_agg s
-        FULL OUTER JOIN fat_agg f ON s.data = f.data AND s.unidade = f.unidade
+            data,
+            unidade,
+            SUM(CASE WHEN tipo = '1-Realizado' THEN quantidade ELSE 0 END) AS saidas_realizado,
+            SUM(CASE WHEN tipo = '2-Orçado'    THEN quantidade ELSE 0 END) AS saidas_orcado,
+            SUM(CASE WHEN tipo = '1-Realizado' THEN valor     ELSE 0 END) AS fat_realizado,
+            SUM(CASE WHEN tipo = '2-Orçado'    THEN valor     ELSE 0 END) AS fat_orcado
+        FROM orcado_real
+        WHERE EXTRACT(YEAR  FROM data) = :ano
+          AND EXTRACT(MONTH FROM data) = :mes
+          {filtro}
+        GROUP BY data, unidade
         ORDER BY data, unidade
     """)
 
