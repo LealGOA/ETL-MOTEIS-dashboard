@@ -640,12 +640,12 @@ with tab_orcado:
 
         def _pct_color(p):
             if p >= 100: return "#2e7d32"
-            if p >= 80:  return "#f9a825"
+            if p > 70:   return "#f9a825"
             return "#c62828"
 
         def _pct_color_dark(p):
             if p >= 100: return "#1b5e20"
-            if p >= 80:  return "#e65100"
+            if p > 70:   return "#e65100"
             return "#b71c1c"
 
         def _fmt_pct(p):
