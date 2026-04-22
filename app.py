@@ -280,6 +280,16 @@ resumo = get_resumo_mes(ano_selecionado, mes_selecionado, filtro_unidade)
 
 dias_com_dados = int((dados["total_saidas"] > 0).sum()) if not dados.empty else 0
 
+hoje = date.today()
+if (ano_selecionado, mes_selecionado) == (hoje.year, hoje.month):
+    if not dados.empty:
+        dias_validos = dados[dados["total_saidas"] > 0]["data"]
+        dia_limite = int(dias_validos.max().day) if not dias_validos.empty else hoje.day
+    else:
+        dia_limite = hoje.day
+else:
+    dia_limite = ultimo_dia
+
 # Cards de métricas (grid 2x2 em mobile, 4x1 em desktop)
 st.markdown(f"""
 <div class="metrics-grid">
@@ -323,7 +333,7 @@ with tab_diaria:
 with tab_mensal:
     st.markdown("### Comparativo por Unidade")
 
-    df_unidades = get_dados_por_unidade(ano_selecionado, mes_selecionado)
+    df_unidades = get_dados_por_unidade(ano_selecionado, mes_selecionado, dia_limite)
 
     if not df_unidades.empty:
         def fmt_numero(x):

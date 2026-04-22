@@ -182,42 +182,49 @@ def get_comparativo_mes(ano: int, mes: int, dia_limite: int, unidade: str = None
 
 
 @st.cache_data(ttl=300)
-def get_dados_por_unidade(ano: int, mes: int) -> pd.DataFrame:
+def get_dados_por_unidade(ano: int, mes: int, dia_limite: int) -> pd.DataFrame:
     """
     Retorna métricas agregadas por unidade para o mês selecionado,
-    incluindo comparação com o mês anterior.
+    incluindo comparação com o mês anterior até o mesmo dia limite.
     """
+    import calendar as _cal
     engine = get_engine()
+
+    if mes == 1:
+        ano_ant, mes_ant = ano - 1, 12
+    else:
+        ano_ant, mes_ant = ano, mes - 1
+
+    ini_atual = date(ano,     mes,     1)
+    fim_atual = date(ano,     mes,     dia_limite)
+    ini_ant   = date(ano_ant, mes_ant, 1)
+    fim_ant   = date(ano_ant, mes_ant, min(dia_limite, _cal.monthrange(ano_ant, mes_ant)[1]))
 
     query = text("""
         WITH saidas_atual AS (
             SELECT unidade, SUM(quantidade) AS saidas
             FROM saidas
-            WHERE EXTRACT(YEAR FROM data) = :ano
-              AND EXTRACT(MONTH FROM data) = :mes
+            WHERE data BETWEEN :ini_atual AND :fim_atual
               AND tipo = '1-Realizado'
             GROUP BY unidade
         ),
         saidas_anterior AS (
             SELECT unidade, SUM(quantidade) AS saidas
             FROM saidas
-            WHERE data >= DATE_TRUNC('month', MAKE_DATE(:ano, :mes, 1)) - INTERVAL '1 month'
-              AND data <  DATE_TRUNC('month', MAKE_DATE(:ano, :mes, 1))
+            WHERE data BETWEEN :ini_ant AND :fim_ant
               AND tipo = '1-Realizado'
             GROUP BY unidade
         ),
         fat_atual AS (
             SELECT unidade, SUM(valor) AS faturamento
             FROM faturamento
-            WHERE EXTRACT(YEAR FROM data) = :ano
-              AND EXTRACT(MONTH FROM data) = :mes
+            WHERE data BETWEEN :ini_atual AND :fim_atual
             GROUP BY unidade
         ),
         fat_anterior AS (
             SELECT unidade, SUM(valor) AS faturamento
             FROM faturamento
-            WHERE data >= DATE_TRUNC('month', MAKE_DATE(:ano, :mes, 1)) - INTERVAL '1 month'
-              AND data <  DATE_TRUNC('month', MAKE_DATE(:ano, :mes, 1))
+            WHERE data BETWEEN :ini_ant AND :fim_ant
             GROUP BY unidade
         )
         SELECT
@@ -235,7 +242,10 @@ def get_dados_por_unidade(ano: int, mes: int) -> pd.DataFrame:
     """)
 
     with engine.connect() as conn:
-        result = conn.execute(query, {"ano": ano, "mes": mes})
+        result = conn.execute(query, {
+            "ini_atual": ini_atual, "fim_atual": fim_atual,
+            "ini_ant":   ini_ant,   "fim_ant":   fim_ant,
+        })
         df = pd.DataFrame(result.fetchall(), columns=result.keys())
 
     if df.empty:
