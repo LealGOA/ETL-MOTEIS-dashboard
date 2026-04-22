@@ -437,8 +437,8 @@ with tab_mensal:
         st.markdown(
             f"---\n**Totais:** {fmt_numero(total_saidas)} saídas "
             f"(<span style='color:{color_s};font-weight:bold'>{fmt_delta(total_delta_s, icon_s)}</span>) · "
-            f"TM R$ {fmt_moeda_br(total_tm)} · "
-            f"Fat. R$ {fmt_moeda_br(total_fat)} "
+            f"TM R\\$ {fmt_moeda_br(total_tm)} · "
+            f"Fat. R\\$ {fmt_moeda_br(total_fat)} "
             f"(<span style='color:{color_f};font-weight:bold'>{fmt_delta_moeda(total_delta_f, icon_f)}</span>)",
             unsafe_allow_html=True,
         )
