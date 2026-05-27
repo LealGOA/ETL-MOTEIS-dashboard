@@ -132,7 +132,7 @@ def _fmt_curta(valor: float) -> str:
     return f"{int(valor):,}".replace(",", ".")
 
 
-def render_calendar(ano: int, mes: int, dados: pd.DataFrame):
+def render_calendar(ano: int, mes: int, dados: pd.DataFrame, alltime_max: dict = None):
     dados_por_data: dict[date, dict] = {}
     if not dados.empty:
         dados = dados.copy()
@@ -180,9 +180,12 @@ def render_calendar(ano: int, mes: int, dados: pd.DataFrame):
 
         # Métricas — strings simples para evitar linhas em branco que quebram o bloco HTML
         if saidas > 0 or fat > 0:
+            dia_semana_py = info["dia_semana"]   # 0=Seg … 6=Dom (Python weekday)
+            is_rec = bool(alltime_max and saidas > 0 and saidas == alltime_max.get(dia_semana_py))
+            star = "&thinsp;⭐" if is_rec else ""
             metricas = (
                 '<div class="cal-metrics">'
-                f'<div class="cal-metric-row"><span>Saí</span><span class="cal-metric-val">{saidas}</span></div>'
+                f'<div class="cal-metric-row"><span>Saí</span><span class="cal-metric-val">{_fmt_curta(saidas)}{star}</span></div>'
                 f'<div class="cal-metric-row"><span>R$</span><span class="cal-metric-val money">{_fmt_curta(fat)}</span></div>'
                 f'<div class="cal-metric-row"><span>TM</span><span class="cal-metric-val">{_fmt_curta(ticket)}</span></div>'
                 '</div>'

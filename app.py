@@ -268,6 +268,28 @@ data_fim = date(ano_selecionado, mes_selecionado, ultimo_dia)
 
 filtro_unidade = unidade_selecionada if unidade_selecionada != "Todas" else None
 
+
+def _calcular_alltime_max(filtro):
+    """Retorna dict {py_weekday (0=Seg): max_saidas} excluindo feriados e ±1 dia."""
+    df = get_recordes_dia_semana(filtro)   # usa cache @st.cache_data — sem custo extra
+    if df.empty:
+        return {}
+    df = df.copy()
+    df["feriado"] = df["data"].apply(lambda d: get_feriado(d) if d else None)
+    def _exc(d):
+        return bool(d and (get_feriado(d)
+                           or get_feriado(d + timedelta(days=1))
+                           or get_feriado(d - timedelta(days=1))))
+    df = df[~df["data"].apply(_exc)]
+    result = {}
+    for pg_dow, grp in df.groupby("dia_semana"):
+        py_dow = (int(pg_dow) + 6) % 7    # PG DOW (0=Dom) → Python weekday (0=Seg)
+        result[py_dow] = int(grp["total_saidas"].max())
+    return result
+
+
+alltime_max_cal = _calcular_alltime_max(filtro_unidade)
+
 dados = get_dados_diarios(data_inicio, data_fim, filtro_unidade)
 
 # Se filtro "Todas", agregar por data
@@ -353,7 +375,7 @@ with tab_diaria:
     </div>
 </div>
 """, unsafe_allow_html=True)
-    render_calendar(ano_selecionado, mes_selecionado, dados)
+    render_calendar(ano_selecionado, mes_selecionado, dados, alltime_max_cal)
 
 with tab_mensal:
     st.markdown("### Comparativo por Unidade")
@@ -535,7 +557,7 @@ with tab_records:
 
         def _cell(num_val, is_record, date_str, feriado_nome, is_fds):
             bg  = "background:#f0fff0;" if is_fds else ""
-            num = f'{int(num_val)}{"&thinsp;⭐" if is_record else ""}'
+            num = f'{formatar_numero(int(num_val))}{"&thinsp;⭐" if is_record else ""}'
             fw  = "font-weight:700;" if is_record else ""
             sub = ""
             if is_record and date_str:
@@ -576,7 +598,7 @@ with tab_records:
         footer_html = f'<td style="{td1}">MELHOR DIA</td>'
         for dow in dow_cols:
             mv = alltime_max.get(dow)
-            val = f"⭐&nbsp;{int(mv)}" if pd.notna(mv) else "–"
+            val = f"⭐&nbsp;{formatar_numero(int(mv))}" if pd.notna(mv) else "–"
             footer_html += f'<td style="padding:5px 8px;text-align:center;font-weight:bold">{val}</td>'
         rows_html += f'<tr style="background:#FFF9C4">{footer_html}</tr>'
 
