@@ -334,30 +334,17 @@ def get_recordes_dia_semana(unidade: str = None) -> pd.DataFrame:
         nomes_sistema = []
 
     query = text(f"""
-        WITH daily AS (
-            SELECT
-                data,
-                EXTRACT(YEAR  FROM data)::INT AS ano,
-                EXTRACT(MONTH FROM data)::INT AS mes,
-                EXTRACT(DOW   FROM data)::INT AS dia_semana,
-                SUM(quantidade) AS total_saidas
-            FROM saidas
-            WHERE tipo = '1-Realizado'
-              {filtro}
-            GROUP BY data
-        ),
-        ranked AS (
-            SELECT *,
-                RANK() OVER (
-                    PARTITION BY ano, mes, dia_semana
-                    ORDER BY total_saidas DESC, data DESC
-                ) AS rnk
-            FROM daily
-        )
-        SELECT data, ano, mes, dia_semana, total_saidas
-        FROM ranked
-        WHERE rnk = 1
-        ORDER BY ano DESC, mes DESC, dia_semana
+        SELECT
+            data,
+            EXTRACT(YEAR  FROM data)::INT AS ano,
+            EXTRACT(MONTH FROM data)::INT AS mes,
+            EXTRACT(DOW   FROM data)::INT AS dia_semana,
+            SUM(quantidade) AS total_saidas
+        FROM saidas
+        WHERE tipo = '1-Realizado'
+          {filtro}
+        GROUP BY data
+        ORDER BY data DESC
     """)
 
     params = {}

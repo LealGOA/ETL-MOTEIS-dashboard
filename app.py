@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 import calendar
 
 from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes, get_recordes_dia_semana, get_totais_anuais, get_orcado_realizado_mes
@@ -463,7 +463,50 @@ with tab_records:
 
     if not df_rec.empty:
         df_rec = df_rec.copy()
+
+        # ── Exclusão de feriados e véspera/pós-feriado do ranking ──────────────
         df_rec["feriado"] = df_rec["data"].apply(lambda d: get_feriado(d) if d else None)
+
+        def _excluido(d):
+            """Retorna True se o dia não deve entrar no ranking:
+            feriado em si, véspera de feriado ou dia seguinte a feriado."""
+            if not d:
+                return False
+            return bool(
+                get_feriado(d)
+                or get_feriado(d + timedelta(days=1))   # d é véspera de feriado
+                or get_feriado(d - timedelta(days=1))   # d é pós-feriado
+            )
+
+        df_rec["excluido"] = df_rec["data"].apply(_excluido)
+
+        # Para exibição: guarda o nome do feriado que cai naquele (ano, mês, dow)
+        # — mesmo sendo excluído do ranking, a célula vai mostrar o label 🟠
+        df_fer_grupo = (
+            df_rec[df_rec["feriado"].notna()]
+            .groupby(["ano", "mes", "dia_semana"])["feriado"]
+            .first()
+            .reset_index()
+            .rename(columns={"feriado": "feriado_grupo"})
+        )
+
+        # Filtra excluídos e escolhe o melhor dia válido por (ano, mês, dia_semana)
+        df_valido = df_rec[~df_rec["excluido"]].copy()
+        df_best = (
+            df_valido
+            .sort_values("total_saidas", ascending=False)
+            .groupby(["ano", "mes", "dia_semana"], as_index=False)
+            .first()
+        )
+
+        # Junta o feriado do grupo (para exibição na célula)
+        df_best = df_best.merge(df_fer_grupo, on=["ano", "mes", "dia_semana"], how="left")
+        df_best["feriado"] = df_best["feriado_grupo"]
+        df_best = df_best.drop(columns=["feriado_grupo", "excluido"])
+
+        # Usa df_best daqui em diante (mesmo nome df_rec para compatibilidade)
+        df_rec = df_best
+        # ───────────────────────────────────────────────────────────────────────
 
         df_rec["mes_ano"]  = df_rec.apply(lambda r: f"{_MESES_ABREV[r['mes']]}/{r['ano']}", axis=1)
         df_rec["sort_key"] = df_rec["ano"] * 100 + df_rec["mes"]
