@@ -322,9 +322,9 @@ comparativo = get_comparativo_mes(ano_selecionado, mes_selecionado, dia_limite, 
 
 def fmt_mom_badge(pct_val):
     if pct_val is None:
-        return ""
+        return '<div class="metric-card-delta"></div>'
     if abs(pct_val) < 2.0:
-        symbol, color = "■", "#f9a825"
+        symbol, color = "~", "#f9a825"
     elif pct_val > 0:
         symbol, color = "▲", "#2e7d32"
     else:
