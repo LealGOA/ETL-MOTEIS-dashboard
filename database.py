@@ -21,6 +21,7 @@ MAPEAMENTO_UNIDADES = {
     "XANADU SP":         "XANADU",
     "MOTEL QUEEN":       "QUEEN",
     "MOTEL HOBBY":       "HOBBY",
+    "MOTEL VILEE":       "VILEE",
     "0":                 "ZERO",
 }
 
