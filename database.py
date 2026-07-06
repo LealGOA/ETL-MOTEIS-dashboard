@@ -414,7 +414,11 @@ def get_totais_anuais(unidade: str = None) -> pd.DataFrame:
 def get_orcado_realizado_mes(ano: int, mes: int, unidade: str = None) -> pd.DataFrame:
     """
     Retorna dados diários por unidade com realizado e orçado separados.
-    Fonte: tabela orcado_real (gerada pelo ETL 4-final.py).
+    Orçado vem da tabela orcado_real (gerada pelo ETL 4-final.py).
+    Realizado vem das tabelas saidas/faturamento (mesma fonte dos cards principais),
+    pois o realizado dentro de orcado_real pode ficar inflado: o ETL faz merge do
+    faturamento por Unidade+Data+Turno em cima de um df de saídas agrupado também
+    por Caixa/Hora, duplicando o Valor do turno quando há mais de um caixa nele.
     Colunas: data, unidade, saidas_realizado, saidas_orcado, fat_realizado, fat_orcado
     """
     engine = get_engine()
@@ -430,19 +434,54 @@ def get_orcado_realizado_mes(ano: int, mes: int, unidade: str = None) -> pd.Data
         nomes_sistema = []
 
     query = text(f"""
+        WITH orcado AS (
+            SELECT data, unidade,
+                   SUM(quantidade) AS saidas_orcado,
+                   SUM(valor)      AS fat_orcado
+            FROM orcado_real
+            WHERE tipo = '2-Orçado'
+              AND EXTRACT(YEAR  FROM data) = :ano
+              AND EXTRACT(MONTH FROM data) = :mes
+              {filtro}
+            GROUP BY data, unidade
+        ),
+        real_saidas AS (
+            SELECT data, unidade, SUM(quantidade) AS saidas_realizado
+            FROM saidas
+            WHERE tipo = '1-Realizado'
+              AND EXTRACT(YEAR  FROM data) = :ano
+              AND EXTRACT(MONTH FROM data) = :mes
+              {filtro}
+            GROUP BY data, unidade
+        ),
+        real_fat AS (
+            SELECT data, unidade, SUM(valor) AS fat_realizado
+            FROM faturamento
+            WHERE tipo = '1-Realizado'
+              AND EXTRACT(YEAR  FROM data) = :ano
+              AND EXTRACT(MONTH FROM data) = :mes
+              {filtro}
+            GROUP BY data, unidade
+        ),
+        chaves AS (
+            SELECT data, unidade FROM orcado
+            UNION
+            SELECT data, unidade FROM real_saidas
+            UNION
+            SELECT data, unidade FROM real_fat
+        )
         SELECT
-            data,
-            unidade,
-            SUM(CASE WHEN tipo = '1-Realizado' THEN quantidade ELSE 0 END) AS saidas_realizado,
-            SUM(CASE WHEN tipo = '2-Orçado'    THEN quantidade ELSE 0 END) AS saidas_orcado,
-            SUM(CASE WHEN tipo = '1-Realizado' THEN valor     ELSE 0 END) AS fat_realizado,
-            SUM(CASE WHEN tipo = '2-Orçado'    THEN valor     ELSE 0 END) AS fat_orcado
-        FROM orcado_real
-        WHERE EXTRACT(YEAR  FROM data) = :ano
-          AND EXTRACT(MONTH FROM data) = :mes
-          {filtro}
-        GROUP BY data, unidade
-        ORDER BY data, unidade
+            c.data,
+            c.unidade,
+            COALESCE(rs.saidas_realizado, 0) AS saidas_realizado,
+            COALESCE(o.saidas_orcado, 0)     AS saidas_orcado,
+            COALESCE(rf.fat_realizado, 0)    AS fat_realizado,
+            COALESCE(o.fat_orcado, 0)        AS fat_orcado
+        FROM chaves c
+        LEFT JOIN orcado       o  ON o.data  = c.data AND o.unidade  = c.unidade
+        LEFT JOIN real_saidas  rs ON rs.data  = c.data AND rs.unidade = c.unidade
+        LEFT JOIN real_fat     rf ON rf.data  = c.data AND rf.unidade = c.unidade
+        ORDER BY c.data, c.unidade
     """)
 
     params = {"ano": ano, "mes": mes}
