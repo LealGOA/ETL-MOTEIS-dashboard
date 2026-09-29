@@ -29,6 +29,11 @@ MAPEAMENTO_UNIDADES = {
 @st.cache_resource
 def get_engine():
     url = st.secrets["DATABASE_URL"]
+    # Fixa o driver explicitamente: a partir do SQLAlchemy 2.1 o prefixo
+    # 'postgresql://' passou a resolver para psycopg (v3), que não é a
+    # dependência do projeto (psycopg2-binary).
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return create_engine(url, connect_args={"sslmode": "require"})
 
 

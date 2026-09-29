@@ -1,4 +1,6 @@
 streamlit>=1.32.0
 pandas>=2.0.0
-sqlalchemy>=2.0.0
+# SQLAlchemy travado em 2.0.x: a 2.1 troca o driver padrão de 'postgresql://'
+# para psycopg (v3) e traz outras mudanças incompatíveis ainda não validadas.
+sqlalchemy>=2.0.0,<2.1
 psycopg2-binary>=2.9.0
