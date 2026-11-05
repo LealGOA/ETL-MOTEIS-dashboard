@@ -25,6 +25,15 @@ MAPEAMENTO_UNIDADES = {
     "0":                 "ZERO",
 }
 
+# Unidades que saíram da rede: não aparecem em nenhuma aba, nem na lista de
+# unidades, nem nos totais (CALIFORNIA, Guilherme, 05/11/2026).
+UNIDADES_FORA_DA_REDE = {"CALIFORNIA"}
+_NOMES_FORA = sorted(
+    {k for k, v in MAPEAMENTO_UNIDADES.items() if v in UNIDADES_FORA_DA_REDE}
+    | UNIDADES_FORA_DA_REDE
+)
+FILTRO_FORA = "AND unidade NOT IN (" + ", ".join(f"'{n}'" for n in _NOMES_FORA) + ")"
+
 
 @st.cache_resource
 def get_engine():
@@ -47,9 +56,9 @@ def get_dados_diarios(data_inicio: date, data_fim: date, unidade: str = None) ->
         nomes_sistema.append(unidade)  # inclui o próprio nome caso já esteja no banco
         nomes_sistema = list(set(nomes_sistema))
         placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
-        filtro = f"AND unidade IN ({placeholders})"
+        filtro = f"AND unidade IN ({placeholders}) {FILTRO_FORA}"
     else:
-        filtro = ""
+        filtro = FILTRO_FORA
         nomes_sistema = []
 
     query = text(f"""
@@ -103,7 +112,7 @@ def get_unidades() -> list:
     with engine.connect() as conn:
         result = conn.execute(query)
         unidades = [row[0] for row in result]
-    unidades = sorted(set(MAPEAMENTO_UNIDADES.get(u, u) for u in unidades))
+    unidades = sorted(set(MAPEAMENTO_UNIDADES.get(u, u) for u in unidades) - UNIDADES_FORA_DA_REDE)
     return ["Todas"] + unidades
 
 
@@ -133,9 +142,9 @@ def get_comparativo_mes(ano: int, mes: int, dia_limite: int, unidade: str = None
         nomes_sistema.append(unidade)
         nomes_sistema = list(set(nomes_sistema))
         placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
-        filtro_uni = f"AND unidade IN ({placeholders})"
+        filtro_uni = f"AND unidade IN ({placeholders}) {FILTRO_FORA}"
     else:
-        filtro_uni = ""
+        filtro_uni = FILTRO_FORA
         nomes_sistema = []
 
     params = {
@@ -208,12 +217,13 @@ def get_dados_por_unidade(ano: int, mes: int, dia_limite: int) -> pd.DataFrame:
     ini_ant   = date(ano_ant, mes_ant, 1)
     fim_ant   = date(ano_ant, mes_ant, min(dia_limite, _cal.monthrange(ano_ant, mes_ant)[1]))
 
-    query = text("""
+    query = text(f"""
         WITH saidas_atual AS (
             SELECT unidade, SUM(quantidade) AS saidas
             FROM saidas
             WHERE data BETWEEN :ini_atual AND :fim_atual
               AND tipo = '1-Realizado'
+              {FILTRO_FORA}
             GROUP BY unidade
         ),
         saidas_anterior AS (
@@ -221,18 +231,21 @@ def get_dados_por_unidade(ano: int, mes: int, dia_limite: int) -> pd.DataFrame:
             FROM saidas
             WHERE data BETWEEN :ini_ant AND :fim_ant
               AND tipo = '1-Realizado'
+              {FILTRO_FORA}
             GROUP BY unidade
         ),
         fat_atual AS (
             SELECT unidade, SUM(valor) AS faturamento
             FROM faturamento
             WHERE data BETWEEN :ini_atual AND :fim_atual
+              {FILTRO_FORA}
             GROUP BY unidade
         ),
         fat_anterior AS (
             SELECT unidade, SUM(valor) AS faturamento
             FROM faturamento
             WHERE data BETWEEN :ini_ant AND :fim_ant
+              {FILTRO_FORA}
             GROUP BY unidade
         )
         SELECT
@@ -286,9 +299,9 @@ def get_resumo_mes(ano: int, mes: int, unidade: str = None) -> dict:
         nomes_sistema.append(unidade)
         nomes_sistema = list(set(nomes_sistema))
         placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
-        filtro = f"AND unidade IN ({placeholders})"
+        filtro = f"AND unidade IN ({placeholders}) {FILTRO_FORA}"
     else:
-        filtro = ""
+        filtro = FILTRO_FORA
         nomes_sistema = []
 
     query_saidas = text(f"""
@@ -334,9 +347,9 @@ def get_recordes_dia_semana(unidade: str = None) -> pd.DataFrame:
         nomes_sistema.append(unidade)
         nomes_sistema = list(set(nomes_sistema))
         placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
-        filtro = f"AND unidade IN ({placeholders})"
+        filtro = f"AND unidade IN ({placeholders}) {FILTRO_FORA}"
     else:
-        filtro = ""
+        filtro = FILTRO_FORA
         nomes_sistema = []
 
     query = text(f"""
@@ -381,9 +394,9 @@ def get_totais_anuais(unidade: str = None) -> pd.DataFrame:
         nomes_sistema.append(unidade)
         nomes_sistema = list(set(nomes_sistema))
         placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
-        filtro = f"AND unidade IN ({placeholders})"
+        filtro = f"AND unidade IN ({placeholders}) {FILTRO_FORA}"
     else:
-        filtro = ""
+        filtro = FILTRO_FORA
         nomes_sistema = []
 
     query = text(f"""
@@ -426,12 +439,13 @@ def get_realizado_meses(data_inicio: date, data_fim: date) -> pd.DataFrame:
     """
     engine = get_engine()
 
-    query = text("""
+    query = text(f"""
         WITH saidas_dia AS (
             SELECT unidade, data, SUM(quantidade) AS saidas
             FROM saidas
             WHERE tipo = '1-Realizado'
               AND data BETWEEN :data_inicio AND :data_fim
+              {FILTRO_FORA}
             GROUP BY unidade, data
         ),
         fat_dia AS (
@@ -439,6 +453,7 @@ def get_realizado_meses(data_inicio: date, data_fim: date) -> pd.DataFrame:
             FROM faturamento
             WHERE tipo = '1-Realizado'
               AND data BETWEEN :data_inicio AND :data_fim
+              {FILTRO_FORA}
             GROUP BY unidade, data
         )
         SELECT
@@ -499,9 +514,9 @@ def get_orcado_realizado_mes(ano: int, mes: int, unidade: str = None) -> pd.Data
         nomes_sistema.append(unidade)
         nomes_sistema = list(set(nomes_sistema))
         placeholders = ", ".join(f":u{i}" for i in range(len(nomes_sistema)))
-        filtro = f"AND unidade IN ({placeholders})"
+        filtro = f"AND unidade IN ({placeholders}) {FILTRO_FORA}"
     else:
-        filtro = ""
+        filtro = FILTRO_FORA
         nomes_sistema = []
 
     query = text(f"""
