@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 import calendar
 
-from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes, get_recordes_dia_semana, get_totais_anuais, get_orcado_realizado_mes
+from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes, get_recordes_dia_semana, get_totais_anuais, get_orcado_realizado_mes, get_realizado_meses
 from calendar_view import render_calendar
 from utils import formatar_moeda, formatar_numero, get_feriado
 
@@ -358,8 +358,8 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_diaria, tab_mensal, tab_records, tab_orcado = st.tabs([
-    "📅 Visão Diária", "📊 Visão Mensal", "🏆 Melhores Dias", "🎯 Orçado vs Real"
+tab_diaria, tab_mensal, tab_records, tab_orcado, tab_12m = st.tabs([
+    "📅 Visão Diária", "📊 Visão Mensal", "🏆 Melhores Dias", "🎯 Orçado vs Real", "🗓️ Últimos 12 Meses"
 ])
 
 with tab_diaria:
@@ -874,6 +874,159 @@ with tab_orcado:
             + f'</tr></thead><tbody>{rows_html}</tbody></table></div>'
         )
         st.markdown(tabela_html, unsafe_allow_html=True)
+
+with tab_12m:
+    # Últimos 12 meses fechados: mês civil (dia 1 ao último dia), sem considerar turno
+    fim_12m = date(hoje.year, hoje.month, 1) - timedelta(days=1)
+    meses_12m = []
+    ano_12m, mes_12m = fim_12m.year, fim_12m.month
+    for _ in range(12):
+        meses_12m.append((ano_12m, mes_12m))
+        ano_12m, mes_12m = (ano_12m, mes_12m - 1) if mes_12m > 1 else (ano_12m - 1, 12)
+    meses_12m.reverse()
+    ini_12m = date(meses_12m[0][0], meses_12m[0][1], 1)
+
+    def _rotulo_mes(am):
+        return f"{MESES_PT[am[1]][:3].lower()}/{str(am[0])[2:]}"
+
+    st.markdown("### Realizado dos Últimos 12 Meses")
+    st.caption(f"{_rotulo_mes(meses_12m[0])} a {_rotulo_mes(meses_12m[-1])} · "
+               f"mês do dia 1 ao último dia, sem considerar turno")
+
+    df_12m = get_realizado_meses(ini_12m, fim_12m)
+
+    if df_12m.empty:
+        st.info("Sem dados para os últimos 12 meses.")
+    else:
+        dados_12m = {(r["unidade"], (int(r["ano"]), int(r["mes"]))): r for _, r in df_12m.iterrows()}
+        ordem = (df_12m.groupby("unidade")["saidas"].sum()
+                 .sort_values(ascending=False).index.tolist())
+
+        def _fmt_int(v):
+            return f"{int(round(v)):,}".replace(",", ".")
+
+        def _cel_12m(saidas, fat, inc_s, inc_f, extra_cls=""):
+            ast_s = '<span class="m12-ast">*</span>' if inc_s else ""
+            ast_f = '<span class="m12-ast">*</span>' if inc_f else ""
+            return (
+                f'<div class="m12-cell {extra_cls}">'
+                f'<div class="m12-row"><span>Saí</span><span class="m12-val">{_fmt_int(saidas)}{ast_s}</span></div>'
+                f'<div class="m12-row"><span>R$</span><span class="m12-val money">{_fmt_int(fat)}{ast_f}</span></div>'
+                f'</div>'
+            )
+
+        tot_s = {am: 0 for am in meses_12m}
+        tot_f = {am: 0.0 for am in meses_12m}
+        tot_inc_s = {am: False for am in meses_12m}
+        tot_inc_f = {am: False for am in meses_12m}
+        incompletos = []
+
+        html = '<div class="m12-head m12-uni">Unidade</div>'
+        html += "".join(f'<div class="m12-head">{_rotulo_mes(am)}</div>' for am in meses_12m)
+
+        for uni in ordem:
+            dest = " m12-dest" if unidade_selecionada != "Todas" and uni == unidade_selecionada else ""
+            html += f'<div class="m12-uni{dest}">{uni}</div>'
+            for am in meses_12m:
+                r = dados_12m.get((uni, am))
+                if r is None:
+                    html += f'<div class="m12-cell{dest}"><div class="m12-vazio">—</div></div>'
+                    continue
+                dias_mes = calendar.monthrange(am[0], am[1])[1]
+                d_s, d_f = int(r["dias_saidas"]), int(r["dias_fat"])
+                inc_s, inc_f = d_s < dias_mes, d_f < dias_mes
+                html += _cel_12m(r["saidas"], r["faturamento"], inc_s, inc_f, dest)
+                tot_s[am] += int(r["saidas"])
+                tot_f[am] += float(r["faturamento"])
+                tot_inc_s[am] = tot_inc_s[am] or inc_s
+                tot_inc_f[am] = tot_inc_f[am] or inc_f
+                if inc_s or inc_f:
+                    if d_s == d_f:
+                        dias_txt = f"{d_s} de {dias_mes} dias"
+                    elif inc_s and inc_f:
+                        dias_txt = f"saídas {d_s}, faturamento {d_f} de {dias_mes} dias"
+                    elif inc_s:
+                        dias_txt = f"saídas {d_s} de {dias_mes} dias"
+                    else:
+                        dias_txt = f"faturamento {d_f} de {dias_mes} dias"
+                    incompletos.append(f"{uni} {_rotulo_mes(am)} ({dias_txt})")
+
+        html += '<div class="m12-uni m12-total">TOTAL</div>'
+        html += "".join(
+            _cel_12m(tot_s[am], tot_f[am], tot_inc_s[am], tot_inc_f[am], "m12-total")
+            for am in meses_12m
+        )
+
+        st.markdown("""
+<style>
+.m12-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+}
+.m12-table {
+    display: grid;
+    grid-template-columns: 108px repeat(12, minmax(79px, 1fr));
+    gap: 2px;
+    min-width: 1086px;
+    padding: 2px;
+    background: #fff;
+}
+.m12-head {
+    background: #1a6b3c;
+    color: #fff;
+    font-weight: 700;
+    font-size: .72rem;
+    text-align: center;
+    padding: 6px 2px;
+    border-radius: 4px;
+}
+.m12-uni {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    padding: 4px 5px;
+    background: #fff;
+    font-weight: 700;
+    font-size: .72rem;
+    color: #333;
+    line-height: 1.2;
+    overflow-wrap: break-word;
+}
+.m12-head.m12-uni { z-index: 2; background: #1a6b3c; color: #fff; }
+.m12-cell {
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 5px;
+    background: #fff;
+    font-size: .7rem;
+    line-height: 1.45;
+}
+.m12-row { display: flex; justify-content: space-between; gap: 4px; color: #888; }
+.m12-val { font-weight: 600; color: #333; white-space: nowrap; }
+.m12-val.money { color: #2e7d32; }
+.m12-ast { color: #e65100; font-weight: 700; }
+.m12-vazio { text-align: center; color: #ccc; line-height: 2.9; }
+.m12-dest { background: #FFF9C4; }
+.m12-total { background: #f5f5f5; border-color: #c8e6c9; }
+.m12-total .m12-val { font-weight: 700; }
+</style>
+""", unsafe_allow_html=True)
+        st.markdown(f'<div class="m12-wrapper"><div class="m12-table">{html}</div></div>',
+                    unsafe_allow_html=True)
+
+        if incompletos:
+            st.markdown(
+                '<div style="font-size:.75rem;color:#888;margin-top:.5rem">'
+                '<span class="m12-ast">*</span> mês com dias sem dado no sistema: '
+                + " · ".join(incompletos)
+                + '. No TOTAL, o <span class="m12-ast">*</span> indica que o mês inclui unidade incompleta.'
+                '</div>',
+                unsafe_allow_html=True,
+            )
 
 # Footer compacto
 st.markdown("""

@@ -415,6 +415,72 @@ def get_totais_anuais(unidade: str = None) -> pd.DataFrame:
     return df
 
 
+@st.cache_data(ttl=3600)
+def get_realizado_meses(data_inicio: date, data_fim: date) -> pd.DataFrame:
+    """
+    Retorna o realizado por unidade e mês (mês civil, pela data do caixa, sem
+    considerar turno) entre data_inicio e data_fim, com os dias que têm dado.
+    O agrupamento por dia vem antes do mapeamento de nomes, para que dois nomes
+    do sistema da mesma unidade no mesmo dia não contem o dia duas vezes.
+    Colunas: unidade, ano, mes, saidas, dias_saidas, faturamento, dias_fat
+    """
+    engine = get_engine()
+
+    query = text("""
+        WITH saidas_dia AS (
+            SELECT unidade, data, SUM(quantidade) AS saidas
+            FROM saidas
+            WHERE tipo = '1-Realizado'
+              AND data BETWEEN :data_inicio AND :data_fim
+            GROUP BY unidade, data
+        ),
+        fat_dia AS (
+            SELECT unidade, data, SUM(valor) AS faturamento
+            FROM faturamento
+            WHERE tipo = '1-Realizado'
+              AND data BETWEEN :data_inicio AND :data_fim
+            GROUP BY unidade, data
+        )
+        SELECT
+            COALESCE(s.unidade, f.unidade) AS unidade,
+            COALESCE(s.data, f.data)       AS data,
+            s.saidas,
+            f.faturamento
+        FROM saidas_dia s
+        FULL OUTER JOIN fat_dia f ON s.unidade = f.unidade AND s.data = f.data
+    """)
+
+    with engine.connect() as conn:
+        result = conn.execute(query, {"data_inicio": data_inicio, "data_fim": data_fim})
+        df = pd.DataFrame(result.fetchall(), columns=result.keys())
+
+    if df.empty:
+        return df
+
+    df["unidade"] = df["unidade"].replace(MAPEAMENTO_UNIDADES)
+    df["saidas"] = pd.to_numeric(df["saidas"], errors="coerce")
+    df["faturamento"] = pd.to_numeric(df["faturamento"], errors="coerce")
+
+    # Um registro por unidade e dia; NaN = dia sem dado naquela tabela
+    df = df.groupby(["unidade", "data"], as_index=False).agg(
+        saidas=("saidas", lambda s: s.sum(min_count=1)),
+        faturamento=("faturamento", lambda s: s.sum(min_count=1)),
+    )
+    df["data"] = pd.to_datetime(df["data"])
+    df["ano"] = df["data"].dt.year
+    df["mes"] = df["data"].dt.month
+
+    df = df.groupby(["unidade", "ano", "mes"], as_index=False).agg(
+        saidas=("saidas", "sum"),
+        dias_saidas=("saidas", "count"),
+        faturamento=("faturamento", "sum"),
+        dias_fat=("faturamento", "count"),
+    )
+    df["saidas"] = df["saidas"].astype(int)
+    df["faturamento"] = df["faturamento"].astype(float)
+    return df
+
+
 @st.cache_data(ttl=300)
 def get_orcado_realizado_mes(ano: int, mes: int, unidade: str = None) -> pd.DataFrame:
     """
