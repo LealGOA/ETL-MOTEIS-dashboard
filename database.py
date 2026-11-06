@@ -34,6 +34,14 @@ _NOMES_FORA = sorted(
 )
 FILTRO_FORA = "AND unidade NOT IN (" + ", ".join(f"'{n}'" for n in _NOMES_FORA) + ")"
 
+# Dias em que a unidade não teve turno: no realizado dos últimos 13 meses eles não
+# contam como dia sem dado no sistema, e o mês não leva asterisco por causa deles.
+# VILLE: 01/05/2026 (o primeiro caixa é de 02/05), 31/05, 01/06 e 02/06/2026
+# (Guilherme, 06/11/2026: "não teve turnos nos dias que está sem os relatórios").
+DIAS_SEM_TURNO = {
+    "VILLE": {date(2026, 5, 1), date(2026, 5, 31), date(2026, 6, 1), date(2026, 6, 2)},
+}
+
 
 @st.cache_resource
 def get_engine():

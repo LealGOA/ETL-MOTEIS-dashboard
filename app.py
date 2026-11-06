@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 import calendar
 
-from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes, get_recordes_dia_semana, get_totais_anuais, get_orcado_realizado_mes, get_realizado_meses
+from database import get_dados_diarios, get_unidades, get_resumo_mes, get_dados_por_unidade, get_comparativo_mes, get_recordes_dia_semana, get_totais_anuais, get_orcado_realizado_mes, get_realizado_meses, DIAS_SEM_TURNO
 from calendar_view import render_calendar
 from utils import formatar_moeda, formatar_numero, get_feriado
 
@@ -935,8 +935,10 @@ with tab_12m:
                     html += f'<div class="m12-cell{dest}"><div class="m12-vazio">—</div></div>'
                     continue
                 dias_mes = calendar.monthrange(am[0], am[1])[1]
+                # dia sem turno não é dia sem dado (DIAS_SEM_TURNO, em database.py)
+                sem_turno = sum(1 for d in DIAS_SEM_TURNO.get(uni, ()) if (d.year, d.month) == am)
                 d_s, d_f = int(r["dias_saidas"]), int(r["dias_fat"])
-                inc_s, inc_f = d_s < dias_mes, d_f < dias_mes
+                inc_s, inc_f = d_s + sem_turno < dias_mes, d_f + sem_turno < dias_mes
                 html += _cel_12m(r["saidas"], r["faturamento"], inc_s, inc_f, dest)
                 tot_s[am] += int(r["saidas"])
                 tot_f[am] += float(r["faturamento"])
