@@ -150,7 +150,9 @@ st.markdown("""
     @media (min-width: 768px) {
         .block-container {
             padding: 2rem 3rem !important;
-            max-width: 1200px !important;
+            /* 1320 - 2 x 3rem = 1224px de conteúdo: cabe o quadro dos últimos
+               13 meses (min-width 1167px) sem barra de rolagem */
+            max-width: 1320px !important;
         }
 
         .dashboard-title { font-size: 1.5rem; }
