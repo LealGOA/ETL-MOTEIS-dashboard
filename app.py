@@ -359,7 +359,7 @@ st.markdown(f"""
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_diaria, tab_mensal, tab_records, tab_orcado, tab_12m = st.tabs([
-    "📅 Visão Diária", "📊 Visão Mensal", "🏆 Melhores Dias", "🎯 Orçado vs Real", "🗓️ Últimos 12 Meses"
+    "📅 Visão Diária", "📊 Visão Mensal", "🏆 Melhores Dias", "🎯 Orçado vs Real", "🗓️ Últimos 13 Meses"
 ])
 
 with tab_diaria:
@@ -876,11 +876,13 @@ with tab_orcado:
         st.markdown(tabela_html, unsafe_allow_html=True)
 
 with tab_12m:
-    # Últimos 12 meses fechados: mês civil (dia 1 ao último dia), sem considerar turno
+    # Últimos 13 meses fechados: o mês que acabou de fechar e os 12 anteriores, para
+    # comparar com o mesmo mês do ano passado (Thederson, 05/11/2026).
+    # Mês civil (dia 1 ao último dia), sem considerar turno.
     fim_12m = date(hoje.year, hoje.month, 1) - timedelta(days=1)
     meses_12m = []
     ano_12m, mes_12m = fim_12m.year, fim_12m.month
-    for _ in range(12):
+    for _ in range(13):
         meses_12m.append((ano_12m, mes_12m))
         ano_12m, mes_12m = (ano_12m, mes_12m - 1) if mes_12m > 1 else (ano_12m - 1, 12)
     meses_12m.reverse()
@@ -889,14 +891,14 @@ with tab_12m:
     def _rotulo_mes(am):
         return f"{MESES_PT[am[1]][:3].lower()}/{str(am[0])[2:]}"
 
-    st.markdown("### Realizado dos Últimos 12 Meses")
+    st.markdown("### Realizado dos Últimos 13 Meses")
     st.caption(f"{_rotulo_mes(meses_12m[0])} a {_rotulo_mes(meses_12m[-1])} · "
                f"mês do dia 1 ao último dia, sem considerar turno")
 
     df_12m = get_realizado_meses(ini_12m, fim_12m)
 
     if df_12m.empty:
-        st.info("Sem dados para os últimos 12 meses.")
+        st.info("Sem dados para os últimos 13 meses.")
     else:
         dados_12m = {(r["unidade"], (int(r["ano"]), int(r["mes"]))): r for _, r in df_12m.iterrows()}
         ordem = (df_12m.groupby("unidade")["saidas"].sum()
@@ -967,9 +969,9 @@ with tab_12m:
 }
 .m12-table {
     display: grid;
-    grid-template-columns: 108px repeat(12, minmax(79px, 1fr));
+    grid-template-columns: 108px repeat(13, minmax(79px, 1fr));
     gap: 2px;
-    min-width: 1086px;
+    min-width: 1167px;
     padding: 2px;
     background: #fff;
 }
